@@ -14,6 +14,7 @@ import {
   Calendar,
   CreditCard,
   FileSearch,
+  Users,
 } from 'lucide-react';
 import { useFees, FeeInvoice } from '../Hooks/Usefees';
 import { useUser } from '../context/UserContext';
@@ -105,13 +106,13 @@ const InvoiceCard: React.FC<{
         <div className="flex items-start gap-4 min-w-0">
           <div className={cn(
             'w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0',
-            invoice.status === 'Paid' ? 'bg-green-50' :
-            invoice.status === 'Overdue' ? 'bg-red-50' : 'bg-yellow-50'
+            invoice.status === 'Paid'    ? 'bg-green-50' :
+            invoice.status === 'Overdue' ? 'bg-red-50'   : 'bg-yellow-50'
           )}>
             <Receipt className={cn(
               'w-5 h-5',
-              invoice.status === 'Paid' ? 'text-green-600' :
-              invoice.status === 'Overdue' ? 'text-red-600' : 'text-yellow-600'
+              invoice.status === 'Paid'    ? 'text-green-600' :
+              invoice.status === 'Overdue' ? 'text-red-600'   : 'text-yellow-600'
             )} />
           </div>
 
@@ -147,11 +148,10 @@ const InvoiceCard: React.FC<{
               </p>
             )}
           </div>
-          {expanded ? (
-            <ChevronUp className="w-4 h-4 text-gray-400" />
-          ) : (
-            <ChevronDown className="w-4 h-4 text-gray-400" />
-          )}
+          {expanded
+            ? <ChevronUp className="w-4 h-4 text-gray-400" />
+            : <ChevronDown className="w-4 h-4 text-gray-400" />
+          }
         </div>
       </button>
 
@@ -166,7 +166,7 @@ const InvoiceCard: React.FC<{
               className={cn(
                 'h-full rounded-full',
                 paymentPct >= 100 ? 'bg-green-500' :
-                paymentPct > 0 ? 'bg-blue-500' : 'bg-red-300'
+                paymentPct > 0   ? 'bg-blue-500'  : 'bg-red-300'
               )}
             />
           </div>
@@ -188,7 +188,9 @@ const InvoiceCard: React.FC<{
               {/* Fee Items */}
               {invoice.items.length > 0 && (
                 <div>
-                  <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Fee Breakdown</h4>
+                  <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                    Fee Breakdown
+                  </h4>
                   <div className="space-y-2">
                     {invoice.items.map((item, i) => (
                       <div key={i} className="flex justify-between items-center py-2 border-b border-gray-50 last:border-0">
@@ -210,25 +212,34 @@ const InvoiceCard: React.FC<{
               {/* Payment Schedule */}
               {invoice.payment_schedule.length > 0 && (
                 <div>
-                  <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Payment Schedule</h4>
+                  <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                    Payment Schedule
+                  </h4>
                   <div className="space-y-2">
                     {invoice.payment_schedule.map((ps, i) => (
-                      <div key={i} className={cn(
-                        'flex justify-between items-center p-3 rounded-xl text-sm',
-                        ps.outstanding > 0 && isOverdue(ps.due_date)
-                          ? 'bg-red-50 border border-red-100'
-                          : ps.outstanding <= 0
-                          ? 'bg-green-50 border border-green-100'
-                          : 'bg-gray-50'
-                      )}>
+                      <div
+                        key={i}
+                        className={cn(
+                          'flex justify-between items-center p-3 rounded-xl text-sm',
+                          ps.outstanding > 0 && isOverdue(ps.due_date)
+                            ? 'bg-red-50 border border-red-100'
+                            : ps.outstanding <= 0
+                            ? 'bg-green-50 border border-green-100'
+                            : 'bg-gray-50'
+                        )}
+                      >
                         <div>
                           <p className="font-medium text-gray-800">Due: {formatDate(ps.due_date)}</p>
                           <p className="text-xs text-gray-500">{ps.invoice_portion}% of invoice</p>
                         </div>
                         <div className="text-right">
-                          <p className="font-bold text-gray-900">{formatCurrency(ps.payment_amount, invoice.currency)}</p>
+                          <p className="font-bold text-gray-900">
+                            {formatCurrency(ps.payment_amount, invoice.currency)}
+                          </p>
                           {ps.outstanding > 0 ? (
-                            <p className="text-xs text-red-500">{formatCurrency(ps.outstanding)} outstanding</p>
+                            <p className="text-xs text-red-500">
+                              {formatCurrency(ps.outstanding)} outstanding
+                            </p>
                           ) : (
                             <p className="text-xs text-green-600 font-medium flex items-center gap-1 justify-end">
                               <CheckCircle2 className="w-3 h-3" /> Cleared
@@ -244,8 +255,12 @@ const InvoiceCard: React.FC<{
               {/* Summary Row */}
               <div className="flex justify-between items-center pt-2 border-t border-gray-100">
                 <div className="flex gap-4 text-xs text-gray-500">
-                  <span>Total: <strong className="text-gray-700">{formatCurrency(invoice.grand_total, invoice.currency)}</strong></span>
-                  <span>Paid: <strong className="text-green-600">{formatCurrency(paidAmount, invoice.currency)}</strong></span>
+                  <span>
+                    Total: <strong className="text-gray-700">{formatCurrency(invoice.grand_total, invoice.currency)}</strong>
+                  </span>
+                  <span>
+                    Paid: <strong className="text-green-600">{formatCurrency(paidAmount, invoice.currency)}</strong>
+                  </span>
                 </div>
                 {invoice.outstanding_amount > 0 && (
                   <span className="text-xs font-bold text-red-600 bg-red-50 px-3 py-1 rounded-full">
@@ -301,17 +316,39 @@ const SummaryCard: React.FC<{
 type FilterType = 'All' | 'Paid' | 'Unpaid' | 'Overdue' | 'Partially Paid';
 
 export const FeesPage: React.FC = () => {
-  // ── UPDATED: user?.name ki jagah studentId directly UserContext se ─────────
-  const { studentId } = useUser() as any;
-  const { invoices, summary, loading, error, refetch } = useFees(studentId);
-  const [filter, setFilter] = useState<FilterType>('All');
+  // ── AttendancePage ke pattern ko follow karta hai ─────────────────────────
+  // Guardian ke liye activeStudentId, baaki ke liye studentId
+  const { role, activeStudentId, studentId: ctxStudentId } = useUser() as any;
+
+  const resolvedStudentId: string | undefined =
+    role === 'guardian' ? (activeStudentId || undefined) : (ctxStudentId || undefined);
+
+  const { invoices, summary, loading, error, refetch } = useFees(resolvedStudentId);
+
+  const [filter, setFilter]               = useState<FilterType>('All');
   const [voucherInvoice, setVoucherInvoice] = useState<FeeInvoice | null>(null);
 
   const filters: FilterType[] = ['All', 'Unpaid', 'Overdue', 'Paid', 'Partially Paid'];
 
-  const filtered = filter === 'All'
-    ? invoices
-    : invoices.filter((inv) => inv.status === filter);
+  const filtered =
+    filter === 'All'
+      ? invoices
+      : invoices.filter((inv) => inv.status === filter);
+
+  // ── Guardian ne koi bachha select nahi kiya ───────────────────────────────
+  if (role === 'guardian' && !activeStudentId) {
+    return (
+      <div className="flex flex-col items-center justify-center py-32 gap-3 text-center px-6">
+        <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center mb-2">
+          <Users className="w-7 h-7 text-blue-400" />
+        </div>
+        <p className="text-base font-bold text-gray-700">Koi bachha select nahi hua</p>
+        <p className="text-sm text-gray-400 max-w-xs">
+          Upar menu se apna bachha select karein taake fees dekh sakein.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -369,7 +406,8 @@ export const FeesPage: React.FC = () => {
       {/* Filter Tabs */}
       <div className="flex gap-2 flex-wrap">
         {filters.map((f) => {
-          const count = f === 'All' ? invoices.length : invoices.filter(i => i.status === f).length;
+          const count =
+            f === 'All' ? invoices.length : invoices.filter((i) => i.status === f).length;
           return (
             <button
               key={f}
@@ -415,12 +453,16 @@ export const FeesPage: React.FC = () => {
         <div className="bg-red-50 border border-red-100 rounded-2xl p-6 text-center">
           <AlertTriangle className="w-10 h-10 text-red-400 mx-auto mb-2" />
           <p className="text-red-600 font-medium">{error}</p>
-          <button onClick={refetch} className="mt-3 text-sm text-red-500 underline">Try again</button>
+          <button onClick={refetch} className="mt-3 text-sm text-red-500 underline">
+            Try again
+          </button>
         </div>
       ) : filtered.length === 0 ? (
         <div className="bg-white border border-gray-100 rounded-2xl p-12 text-center">
           <FileText className="w-12 h-12 text-gray-200 mx-auto mb-3" />
-          <p className="text-gray-500 font-medium">No {filter !== 'All' ? filter.toLowerCase() : ''} invoices found</p>
+          <p className="text-gray-500 font-medium">
+            No {filter !== 'All' ? filter.toLowerCase() : ''} invoices found
+          </p>
         </div>
       ) : (
         <div className="space-y-3">

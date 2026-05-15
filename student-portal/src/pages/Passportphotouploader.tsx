@@ -115,7 +115,7 @@ async function cropToPassport(file: File): Promise<{ blob: Blob; dataUrl: string
 
   if (detections.length === 0) {
     throw new Error(
-      'Chehra detect nahi hua. Kripya:\n• Clear, front-facing photo use karein\n• Achhi lighting mein photo len\n• Face clearly visible ho'
+      'Face could not be detected. Please:\n• Use a clear, front-facing photo\n• Take the photo in good lighting\n• Ensure the face is clearly visible'
     );
   }
 
@@ -203,7 +203,7 @@ export const PassportPhotoUploader: React.FC<PassportPhotoUploaderProps> = ({
   const processFile = useCallback(
     async (file: File) => {
       if (!file.type.startsWith('image/')) {
-        setErrorMsg('Sirf image files allowed hain (JPG, PNG, HEIC, WebP)');
+        setErrorMsg('Only image files are allowed (JPG, PNG, HEIC, WebP)');
         setStatus('error');
         return;
       }
@@ -311,7 +311,7 @@ export const PassportPhotoUploader: React.FC<PassportPhotoUploaderProps> = ({
           <div className="absolute inset-0 bg-white/85 flex flex-col items-center justify-center gap-1.5">
             <Loader2 className="w-5 h-5 text-primary-green animate-spin" />
             <span className="text-[9px] text-gray-500 text-center px-1 leading-tight">
-              Face detect<br />ho raha hai…
+              Face is detecting....<br />
             </span>
           </div>
         )}

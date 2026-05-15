@@ -714,15 +714,30 @@ export const erpService = {
   },
 
   getResults: async (studentId: string) => {
+  // Try 1: student ID se
+  try {
     const res: any = await resourceClient.get("Assessment Result", {
       params: {
         filters: JSON.stringify([["student", "=", studentId]]),
         fields: JSON.stringify(["*"]),
+        limit_page_length: 200,
       },
     });
-    console.log("Assessment Result data:", res.data);
-    return res.data;
-  },
+    if (res?.data?.length > 0) return res.data;
+  } catch {}
+  try {
+    const res: any = await resourceClient.get("Assessment Result", {
+      params: {
+        filters: JSON.stringify([["student_name", "=", studentId]]),
+        fields: JSON.stringify(["*"]),
+        limit_page_length: 200,
+      },
+    });
+    return res?.data || [];
+  } catch {}
+  
+  return [];
+},
 
   getQuizzes: async (studentId: string) => {
     try {

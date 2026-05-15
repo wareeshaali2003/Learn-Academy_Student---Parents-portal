@@ -1,44 +1,24 @@
 // pages/AttendancePage.tsx
 import React, { useState } from 'react';
 import { useAttendance } from '../Hooks/useAttendance';
+import { useUser } from '../context/UserContext';
+import { format, parseISO } from 'date-fns';
 import {
-  format, parseISO,
-} from 'date-fns';
-import {
-  CheckCircle2, XCircle,
-  MinusCircle, AlertCircle,
-  TrendingUp, Clock,
-  BookOpen, Users, User, Calendar,
+  CheckCircle2, XCircle, MinusCircle, AlertCircle,
+  TrendingUp, Clock, BookOpen, Users,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useUser } from '../context/UserContext';
-import { erpService } from '../services/erpService';
-// ── Types ─────────────────────────────────────────────────────────────────────
 
-type FilterType = 'All' | 'Present' | 'Absent' | 'Leave';
-
-// ── Course Code Parser ────────────────────────────────────────────────────────
-// Parses codes like "LB-KG1-A-Math00001" → { class: "KG1", section: "A", subject: "Math" }
+type FilterType = 'All' | 'Present' | 'Absent' | 'On Leave';
 
 function parseCourseCode(code: string): { cls: string; section: string | null; subject: string } | null {
   if (!code) return null;
-
-  // Pattern WITH section: LB-KG1-A-Math00001
   const withSection = code.match(/^[A-Z]+-([^-]+)-([A-Z])-([A-Za-z]+)\d+$/);
-  if (withSection) {
-    return { cls: withSection[1], section: withSection[2], subject: withSection[3] };
-  }
-
-  // Pattern WITHOUT section: LB-KG1-Math00003  or  LB-KG1-Eng00004
+  if (withSection) return { cls: withSection[1], section: withSection[2], subject: withSection[3] };
   const withoutSection = code.match(/^[A-Z]+-([^-]+)-([A-Za-z]+)\d+$/);
-  if (withoutSection) {
-    return { cls: withoutSection[1], section: null, subject: withoutSection[2] };
-  }
-
+  if (withoutSection) return { cls: withoutSection[1], section: null, subject: withoutSection[2] };
   return null;
 }
-
-// ── Stat Card ─────────────────────────────────────────────────────────────────
 
 const StatCard: React.FC<{
   icon: React.ReactNode;
@@ -67,8 +47,6 @@ const StatCard: React.FC<{
   </div>
 );
 
-// ── Status Badge ──────────────────────────────────────────────────────────────
-
 function StatusBadge({ status }: { status: string }) {
   if (status === 'Present')
     return (
@@ -84,12 +62,10 @@ function StatusBadge({ status }: { status: string }) {
     );
   return (
     <span className="inline-flex items-center gap-1.5 text-xs font-semibold bg-amber-50 text-amber-600 px-2.5 py-1 rounded-full whitespace-nowrap">
-      <MinusCircle className="w-3 h-3" /> Leave
+      <MinusCircle className="w-3 h-3" /> On Leave
     </span>
   );
 }
-
-// ── Info Pill ──────────────────────────────────────────────────────────────────
 
 function InfoPill({ icon, label }: { icon: React.ReactNode; label: string }) {
   return (
@@ -100,26 +76,25 @@ function InfoPill({ icon, label }: { icon: React.ReactNode; label: string }) {
   );
 }
 
-// ── Main Page ─────────────────────────────────────────────────────────────────
-
 export const AttendancePage: React.FC = () => {
+  const { role, activeStudentId } = useUser();
   const { attendance, isLoading, error } = useAttendance();
   const [listFilter, setListFilter] = useState<FilterType>('All');
 
-  const total = attendance.length;
-  const stats = {
-    present: attendance.filter(a => a.status === 'Present').length,
-    absent:  attendance.filter(a => a.status === 'Absent').length,
-    leave:   attendance.filter(a => a.status === 'Leave').length,
-  };
-
-  // Sorted list — newest first
-  const sortedAttendance = [...attendance].sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-  );
-  const filteredList = listFilter === 'All'
-    ? sortedAttendance
-    : sortedAttendance.filter(a => a.status === listFilter);
+  // Guardian ne koi child select nahi kiya
+  if (role === 'guardian' && !activeStudentId) {
+    return (
+      <div className="flex flex-col items-center justify-center py-32 gap-3 text-center px-6">
+        <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center mb-2">
+          <Users className="w-7 h-7 text-blue-400" />
+        </div>
+        <p className="text-base font-bold text-gray-700">Koi bachha select nahi hua</p>
+        <p className="text-sm text-gray-400 max-w-xs">
+          Upar menu se apna bachha select karein taake attendance dekh sakein.
+        </p>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -139,35 +114,32 @@ export const AttendancePage: React.FC = () => {
     );
   }
 
+  const total = attendance.length;
+  const stats = {
+    present: attendance.filter(a => a.status === 'Present').length,
+    absent:  attendance.filter(a => a.status === 'Absent').length,
+    leave:   attendance.filter(a => a.status === 'On Leave').length,  // ← fixed
+  };
+
+  const sortedAttendance = [...attendance].sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
+
+  const filteredList = listFilter === 'All'
+    ? sortedAttendance
+    : sortedAttendance.filter(a => a.status === listFilter);
+
   return (
     <div className="space-y-5 max-w-4xl pb-8">
 
-      {/* ── Stats Row ──────────────────────────────────────────────────────── */}
+      {/* Stats Row */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard
-          icon={<CheckCircle2 className="w-5 h-5" />}
-          iconClass="bg-emerald-50 text-emerald-600"
-          label="Present"
-          value={stats.present}
-          total={total}
-        />
-        <StatCard
-          icon={<XCircle className="w-5 h-5" />}
-          iconClass="bg-red-50 text-red-500"
-          label="Absent"
-          value={stats.absent}
-          total={total}
-        />
-        <StatCard
-          icon={<MinusCircle className="w-5 h-5" />}
-          iconClass="bg-amber-50 text-amber-500"
-          label="On Leave"
-          value={stats.leave}
-          total={total}
-        />
+        <StatCard icon={<CheckCircle2 className="w-5 h-5" />} iconClass="bg-emerald-50 text-emerald-600" label="Present" value={stats.present} total={total} />
+        <StatCard icon={<XCircle className="w-5 h-5" />}      iconClass="bg-red-50 text-red-500"         label="Absent"  value={stats.absent}  total={total} />
+        <StatCard icon={<MinusCircle className="w-5 h-5" />}  iconClass="bg-amber-50 text-amber-500"     label="On Leave" value={stats.leave}  total={total} />
       </div>
 
-      {/* ── Attendance Rate Banner ──────────────────────────────────────────── */}
+      {/* Attendance Rate Banner */}
       {total > 0 && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
           <div className="flex items-center justify-between mb-3">
@@ -196,27 +168,27 @@ export const AttendancePage: React.FC = () => {
           </div>
           <div className="flex justify-between text-[11px] text-gray-400 font-medium mt-2">
             <span>{stats.present} present out of {total} total classes</span>
-            <span>{stats.absent} absent</span>
+            <span>{stats.absent} absent · {stats.leave} on leave</span>
           </div>
         </div>
       )}
 
-      {/* ── List View ──────────────────────────────────────────────────────── */}
+      {/* List View */}
       <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
 
         {/* Filter tabs */}
         <div className="flex gap-1 p-3 border-b border-gray-50 bg-gray-50/50">
-          {(['All', 'Present', 'Absent', 'Leave'] as const).map(f => (
+          {(['All', 'Present', 'Absent', 'On Leave'] as const).map(f => (
             <button
               key={f}
               onClick={() => setListFilter(f)}
               className={cn(
                 'px-3 py-1.5 rounded-lg text-xs font-semibold transition-all',
                 listFilter === f
-                  ? f === 'All'     ? 'bg-gray-800 text-white' :
-                    f === 'Present' ? 'bg-emerald-500 text-white' :
-                    f === 'Absent'  ? 'bg-red-500 text-white' :
-                                      'bg-amber-500 text-white'
+                  ? f === 'All'      ? 'bg-gray-800 text-white' :
+                    f === 'Present'  ? 'bg-emerald-500 text-white' :
+                    f === 'Absent'   ? 'bg-red-500 text-white' :
+                                       'bg-amber-500 text-white'
                   : 'text-gray-500 hover:bg-white hover:text-gray-700'
               )}
             >
@@ -243,58 +215,32 @@ export const AttendancePage: React.FC = () => {
           <div className="divide-y divide-gray-50">
             {filteredList.map((record, i) => {
               const date = parseISO(record.date);
-              const teacherName = record.link_nvfk || '—';
-
-              // ── Parse course code into readable parts ──────────────────────
               const parsed = parseCourseCode(record.course_schedule);
 
               return (
-                <div
-                  key={i}
-                  className="flex items-start justify-between px-5 py-4 hover:bg-gray-50/50 transition-colors gap-4"
-                >
-                  {/* Left: Date block + details */}
+                <div key={i} className="flex items-start justify-between px-5 py-4 hover:bg-gray-50/50 transition-colors gap-4">
                   <div className="flex items-start gap-4 min-w-0">
-
                     {/* Date block */}
                     <div className={cn(
                       'w-12 h-12 rounded-xl flex flex-col items-center justify-center flex-shrink-0 border',
-                      record.status === 'Present' ? 'bg-emerald-50 border-emerald-100 text-emerald-700' :
-                      record.status === 'Absent'  ? 'bg-red-50 border-red-100 text-red-600' :
+                      record.status === 'Present'  ? 'bg-emerald-50 border-emerald-100 text-emerald-700' :
+                      record.status === 'Absent'   ? 'bg-red-50 border-red-100 text-red-600' :
                       'bg-amber-50 border-amber-100 text-amber-600'
                     )}>
                       <span className="text-base font-extrabold leading-none">{format(date, 'd')}</span>
-                      <span className="text-[9px] font-semibold uppercase tracking-wide opacity-70">
-                        {format(date, 'MMM')}
-                      </span>
+                      <span className="text-[9px] font-semibold uppercase tracking-wide opacity-70">{format(date, 'MMM')}</span>
                     </div>
 
-                    {/* Main content */}
                     <div className="min-w-0 flex-1">
-                      {/* Day + full date */}
-                      <div className="flex items-center gap-2 mb-2">
-                        <p className="text-sm font-bold text-gray-800">
-                          {format(date, 'EEEE, d MMM yyyy')}
-                        </p>
-                      </div>
-
-                      {/* Info pills row */}
+                      <p className="text-sm font-bold text-gray-800 mb-2">
+                        {format(date, 'EEEE, d MMM yyyy')}
+                      </p>
                       <div className="flex flex-wrap gap-1.5">
                         {record.course_schedule && (
-                          parsed ? (
-                            <>
-                              {/* Subject name — e.g. "Math" */}
-                              <InfoPill
-                                icon={<BookOpen className="w-3 h-3 text-blue-400" />}
-                                label={parsed.subject}
-                              />
-                            </>
-                          ) : (
-                            <InfoPill
-                              icon={<BookOpen className="w-3 h-3 text-blue-400" />}
-                              label={record.course_schedule}
-                            />
-                          )
+                          <InfoPill
+                            icon={<BookOpen className="w-3 h-3 text-blue-400" />}
+                            label={parsed ? parsed.subject : record.course_schedule}
+                          />
                         )}
                         {record.student_group && (
                           <InfoPill
@@ -306,7 +252,6 @@ export const AttendancePage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Right: Status badge */}
                   <div className="flex-shrink-0 pt-0.5">
                     <StatusBadge status={record.status} />
                   </div>

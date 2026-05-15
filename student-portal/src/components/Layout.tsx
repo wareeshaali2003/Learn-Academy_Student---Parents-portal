@@ -1,5 +1,5 @@
 import React from 'react';
-import { useUser } from '../context/UserContext';
+import { useUser, LinkedStudent } from '../context/UserContext';
 import {
   LayoutDashboard,
   CalendarCheck,
@@ -15,10 +15,18 @@ import {
   Wallet,
   ClipboardList,
   Newspaper,
+  ChevronDown,
+  Users,
 } from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+
+// ─── Replace this URL with your actual logo image URL ────────────────────────
+// Google Drive direct link example:
+// const LOGO_URL = 'https://drive.google.com/uc?export=view&id=YOUR_FILE_ID';
+// Ya phir apni image ko /public folder mein rakho aur path do:
+const LOGO_URL = 'https://share.google/vUsEtSdU87MNHPc2R/logo.png'; // <-- apni image ka path yahan likho
 
 type UserRole = 'student' | 'guardian';
 
@@ -33,13 +41,13 @@ const navItems: NavItem[] = [
   { name: 'Dashboard',    path: '/',             icon: LayoutDashboard },
   { name: 'Attendance',   path: '/attendance',   icon: CalendarCheck   },
   { name: 'Assignments',  path: '/assignments',  icon: FileText        },
-{ name: 'Results', path: '/results', icon: GraduationCap, allowedRoles: ['student'] },
+  { name: 'Results',      path: '/results',      icon: GraduationCap,  allowedRoles: ['student'] },
   { name: 'Quizzes',      path: '/quizzes',      icon: BrainCircuit    },
   { name: 'Schedule',     path: '/schedule',     icon: CalendarDays    },
   { name: 'Report Card',  path: '/report-card',  icon: ClipboardList,  allowedRoles: ['guardian'] },
   { name: 'Fees',         path: '/fees',         icon: Wallet,         allowedRoles: ['guardian'] },
   { name: 'Notice Board', path: '/notice-board', icon: Newspaper,      allowedRoles: ['guardian'] },
-  { name: 'Profile',      path: '/profile',      icon: UserCircle }, // ✅ sirf ek baar
+  { name: 'Profile',      path: '/profile',      icon: UserCircle },
 ];
 
 function getVisibleNav(role: UserRole): NavItem[] {
@@ -49,57 +57,126 @@ function getVisibleNav(role: UserRole): NavItem[] {
 }
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, logout } = useUser();
+  const { user, logout, linkedStudents, setActiveStudentId, activeStudentId } = useUser();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
+  const [childMenuOpen, setChildMenuOpen] = React.useState(false);
   const navigate = useNavigate();
 
-  // ─── Derive role & display name ──────────────────────────────────────────
+  // ─── Derive role & display name ───────────────────────────────────────────
   const role: UserRole = user?.role === 'guardian' ? 'guardian' : 'student';
   const visibleNav = getVisibleNav(role);
+
   const displayName = role === 'guardian'
     ? (user as any)?.guardian_name
     : (user as any)?.student_name;
+
+  // ─── Portal label based on role ───────────────────────────────────────────
+  const portalLabel = role === 'guardian' ? 'Parents Portal' : 'Student Portal';
+
+  const activeChild = linkedStudents.find(s => s.student === activeStudentId);
+  const showSwitcher = role === 'guardian' && linkedStudents.length > 1;
 
   const handleLogout = () => {
     logout();
     navigate('/login');
   };
 
+  // ─── Logo component (reused in sidebar & mobile header) ───────────────────
+  const LogoMark = ({ size = 40 }: { size?: number }) => (
+    <div
+      className="rounded-xl overflow-hidden flex items-center justify-center bg-primary-green text-white font-bold shadow-lg shadow-green-100 flex-shrink-0"
+      style={{ width: size, height: size, fontSize: size * 0.5 }}
+    >
+      {LOGO_URL ? (
+        <img
+          src={LOGO_URL}
+          alt="Logo"
+          className="w-full h-full object-cover"
+          onError={(e) => {
+            // Agar image load na ho toh fallback "S" dikhao
+            (e.target as HTMLImageElement).style.display = 'none';
+            (e.target as HTMLImageElement).parentElement!.innerText = 'S';
+          }}
+        />
+      ) : (
+        'S'
+      )}
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-[#F8F9FA] flex flex-col md:flex-row">
 
-      {/* ── Sidebar Desktop ─────────────────────────────────────────────── */}
+      {/* ── Sidebar Desktop ────────────────────────────────────────────────── */}
       <aside className="hidden md:flex w-64 bg-white border-r border-gray-200 flex-col sticky top-0 h-screen">
-        <div className="p-6 border-b border-gray-100">
+
+        {/* Logo + Portal label */}
+        <div className="p-6 border-b border-gray-100 flex-shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-primary-green rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-green-100">
-              S
+            <LogoMark size={40} />
+            <div className="leading-tight">
+              <span className="font-bold text-lg text-gray-900 block">Portal</span>
+              {/* Role-based portal label */}
+              <span className="text-xs font-medium text-primary-green">{portalLabel}</span>
             </div>
-            <span className="font-bold text-xl text-gray-900">Portal</span>
           </div>
         </div>
 
-        <nav className="flex-1 px-4 py-6 space-y-2">
+        {/* Child Switcher */}
+        {showSwitcher && (
+          <div className="px-4 pb-4 pt-3 border-b border-gray-100 flex-shrink-0">
+            <p className="text-xs text-gray-400 font-medium mb-2 px-2">Viewing child</p>
+            <div className="space-y-1">
+              {linkedStudents.map((child) => (
+                <button
+                  key={child.student}
+                  onClick={() => setActiveStudentId(child.student)}
+                  className={cn(
+                    "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all",
+                    activeStudentId === child.student
+                      ? "bg-green-50 text-primary-green font-semibold"
+                      : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"
+                  )}
+                >
+                  <div className={cn(
+                    "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0",
+                    activeStudentId === child.student
+                      ? "bg-primary-green text-white"
+                      : "bg-gray-100 text-gray-500"
+                  )}>
+                    {child.student_name?.charAt(0)?.toUpperCase()}
+                  </div>
+                  <span className="text-sm truncate">{child.student_name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Scrollable Nav ─────────────────────────────────────────────── */}
+        {/* flex-1 + overflow-y-auto = scroll hoga, logout neeche fixed rahega */}
+        <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
           {visibleNav.map((item) => (
             <NavLink
               key={item.path}
               to={item.path}
               className={({ isActive }) =>
                 cn(
-                  "flex items-center gap-1 px-2 py-1 rounded-xl transition-all duration-200 group",
+                  "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group",
                   isActive
                     ? "bg-green-50 text-primary-green font-medium"
                     : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"
                 )
               }
             >
-              <item.icon className="w-5 h-5" />
+              <item.icon className="w-5 h-5 flex-shrink-0" />
               {item.name}
             </NavLink>
           ))}
         </nav>
 
-        <div className="p-4 border-t border-gray-100">
+        {/* ── Logout — always visible at bottom ─────────────────────────── */}
+        <div className="p-4 border-t border-gray-100 flex-shrink-0">
           <button
             onClick={handleLogout}
             className="flex items-center gap-3 w-full px-4 py-3 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all duration-200"
@@ -110,20 +187,71 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         </div>
       </aside>
 
-      {/* ── Mobile Header ───────────────────────────────────────────────── */}
+      {/* ── Mobile Header ────────────────────────────────────────────────── */}
       <header className="md:hidden bg-white border-b border-gray-200 p-4 sticky top-0 z-50 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-primary-green rounded-lg flex items-center justify-center text-white font-bold shadow-md shadow-green-50">
-            S
+          <LogoMark size={32} />
+          <div className="leading-tight">
+            <span className="font-bold text-base block">Portal</span>
+            <span className="text-[10px] font-medium text-primary-green leading-none">{portalLabel}</span>
           </div>
-          <span className="font-bold text-lg">Portal</span>
         </div>
-        <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
-          {isMobileMenuOpen ? <X /> : <Menu />}
-        </button>
+
+        <div className="flex items-center gap-2">
+          {/* Mobile child switcher */}
+          {showSwitcher && (
+            <div className="relative">
+              <button
+                onClick={() => setChildMenuOpen(!childMenuOpen)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 border border-green-100 rounded-full text-xs font-semibold text-primary-green"
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span className="max-w-[80px] truncate">{activeChild?.student_name}</span>
+                <ChevronDown className={cn("w-3 h-3 transition-transform", childMenuOpen && "rotate-180")} />
+              </button>
+
+              {childMenuOpen && (
+                <div className="absolute right-0 top-10 z-50 bg-white border border-gray-100 rounded-2xl shadow-lg p-2 min-w-[180px]">
+                  {linkedStudents.map((child) => (
+                    <button
+                      key={child.student}
+                      onClick={() => {
+                        setActiveStudentId(child.student);
+                        setChildMenuOpen(false);
+                      }}
+                      className={cn(
+                        "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all",
+                        activeStudentId === child.student
+                          ? "bg-green-50 text-primary-green font-semibold"
+                          : "text-gray-500 hover:bg-gray-50"
+                      )}
+                    >
+                      <div className={cn(
+                        "w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0",
+                        activeStudentId === child.student
+                          ? "bg-primary-green text-white"
+                          : "bg-gray-100 text-gray-500"
+                      )}>
+                        {child.student_name?.charAt(0)?.toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">{child.student_name}</p>
+                        <p className="text-xs text-gray-400">{child.student}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
+            {isMobileMenuOpen ? <X /> : <Menu />}
+          </button>
+        </div>
       </header>
 
-      {/* ── Mobile Menu Overlay ─────────────────────────────────────────── */}
+      {/* ── Mobile Menu Overlay ──────────────────────────────────────────── */}
       <AnimatePresence>
         {isMobileMenuOpen && (
           <motion.div
@@ -161,7 +289,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         )}
       </AnimatePresence>
 
-      {/* ── Main Content ────────────────────────────────────────────────── */}
+      {/* ── Main Content ─────────────────────────────────────────────────── */}
       <main className="flex-1 p-4 md:p-8 max-w-7xl mx-auto w-full">
         <header className="flex items-center justify-between mb-8">
           <div>
@@ -175,7 +303,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             </p>
           </div>
           <div className="flex items-center gap-4">
-            <button className="p-2 text-gray-400 hover:text-gray-600 bg-white rounded-full border border-gray-200 relative">
+            <button
+                onClick={() => navigate('/notice-board')}
+                className="p-2 text-gray-400 hover:text-gray-600 bg-white rounded-full border border-gray-200 relative"
+              >
               <Bell className="w-5 h-5" />
               <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
             </button>

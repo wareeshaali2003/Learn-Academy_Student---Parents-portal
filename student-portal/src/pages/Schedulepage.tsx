@@ -1,3 +1,4 @@
+// pages/SchedulePage.tsx
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -88,6 +89,25 @@ function isToday(date: Date): boolean {
     date.getDate()  === t.getDate();
 }
 
+// ── isClassActive ─────────────────────────────────────────────────────────────
+// Returns true if current time falls within the class window (on today's date).
+// Also enables the button 10 minutes before class starts.
+
+function isClassActive(entry: ScheduleEntry): boolean {
+  const today    = new Date();
+  const entryDate = entry.schedule_date.slice(0, 10);
+  const todayKey  = toKey(today);
+  if (entryDate !== todayKey) return false;
+
+  const now = today.getHours() * 60 + today.getMinutes();
+  const [fromH, fromM] = entry.from_time.split(':').map(Number);
+  const [toH,   toM  ] = entry.to_time.split(':').map(Number);
+  const start = fromH * 60 + fromM - 10; // 10 min early enable
+  const end   = toH   * 60 + toM;
+
+  return now >= start && now <= end;
+}
+
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useStudentSchedule(studentId: string | null | undefined, academicYear = '2025') {
@@ -149,12 +169,14 @@ export function useStudentSchedule(studentId: string | null | undefined, academi
 
 // ── ClassCard ─────────────────────────────────────────────────────────────────
 
-const ClassCard: React.FC<{ entry: ScheduleEntry; index: number }> = ({ entry, index }) => {
+const ClassCard: React.FC<{ entry: ScheduleEntry; index: number; isGuardian: boolean }> = ({ entry, index, isGuardian }) => {
   const c          = getCourseColor(entry.course);
   const courseName = formatCourseName(entry.course);
   const groupName  = formatGroupName(entry.student_group_name);
   const fromTime   = parseTime(entry.from_time);
   const toTime     = parseTime(entry.to_time);
+  const active     = isClassActive(entry);
+  const hasLink    = !!(entry.meeting_link || entry.custom_meeting_link);
 
   return (
     <motion.div
@@ -187,19 +209,33 @@ const ClassCard: React.FC<{ entry: ScheduleEntry; index: number }> = ({ entry, i
             </span>
           )}
         </div>
-        {(entry.meeting_link || entry.custom_meeting_link) && (
-          <a
-            href={(entry.meeting_link || entry.custom_meeting_link)!}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={e => e.stopPropagation()}
-            className="mt-2.5 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl
-                       bg-green-500 hover:bg-green-600 active:scale-95
-                       text-white text-[11px] font-bold shadow-sm shadow-green-200
-                       transition-all duration-150 select-none"
-          >
-            <Video className="w-3.5 h-3.5" /> Join Class
-          </a>
+
+        {/* Join Class button — only shown when a link exists AND user is not a guardian */}
+        {hasLink && !isGuardian && (
+          active ? (
+            // ✅ Class active hai — clickable green button
+            <a
+              href={(entry.meeting_link || entry.custom_meeting_link)!}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={e => e.stopPropagation()}
+              className="mt-2.5 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl
+                         bg-green-500 hover:bg-green-600 active:scale-95
+                         text-white text-[11px] font-bold shadow-sm shadow-green-200
+                         transition-all duration-150 select-none"
+            >
+              <Video className="w-3.5 h-3.5" /> Join Class
+            </a>
+          ) : (
+            // 🔒 Class abhi active nahi — disabled grey button
+            <span
+              className="mt-2.5 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl
+                         bg-gray-100 text-gray-400 text-[11px] font-bold
+                         cursor-not-allowed select-none"
+            >
+              <Video className="w-3.5 h-3.5" /> Join Class
+            </span>
+          )
         )}
       </div>
     </motion.div>
@@ -287,7 +323,13 @@ const MiniCal: React.FC<{
 // ── SchedulePage ──────────────────────────────────────────────────────────────
 
 export const SchedulePage: React.FC = () => {
-  const { studentId } = useUser();
+  const { user, role, activeStudentId } = useUser();
+
+  const isGuardian = role === 'guardian';
+
+  const studentId: string | undefined = isGuardian
+    ? (activeStudentId ?? undefined)
+    : (activeStudentId ?? user?.name ?? undefined);
 
   const [selectedDate, setSelectedDate] = useState<Date>(() => new Date());
   const [weekStart,    setWeekStart]    = useState<Date>(() => startOfWeek(new Date()));
@@ -311,6 +353,20 @@ export const SchedulePage: React.FC = () => {
   const totalForMonth = Object.entries(byDate)
     .filter(([k]) => { const d = new Date(k); return d.getFullYear() === calYear && d.getMonth() === calMonth; })
     .reduce((s, [, v]) => s + v.length, 0);
+
+  if (isGuardian && !activeStudentId) {
+    return (
+      <div className="flex flex-col items-center justify-center py-32 gap-3 text-center px-6">
+        <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center mb-2">
+          <Users className="w-7 h-7 text-blue-400" />
+        </div>
+        <p className="text-base font-bold text-gray-700">Koi bachha select nahi hua</p>
+        <p className="text-sm text-gray-400 max-w-xs">
+          Upar menu se apna bachha select karein taake schedule dekh sakein.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5 max-w-4xl pb-8">
@@ -470,7 +526,7 @@ export const SchedulePage: React.FC = () => {
               className="grid grid-cols-1 md:grid-cols-2 gap-2.5"
             >
               {todayClasses.map((entry, i) => (
-                <ClassCard key={`${entry.course}-${entry.from_time}`} entry={entry} index={i} />
+                <ClassCard key={`${entry.course}-${entry.from_time}`} entry={entry} index={i} isGuardian={isGuardian} />
               ))}
             </motion.div>
           </AnimatePresence>

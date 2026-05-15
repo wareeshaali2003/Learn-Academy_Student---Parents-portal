@@ -10,7 +10,7 @@ export interface AttendanceRecord {
   course_schedule: string;
   student_group: string;
   date: string;
-  status: 'Present' | 'Absent' | 'Leave';
+  status: 'Present' | 'Absent' | 'On Leave';
   link_nvfk: string;
 }
 
@@ -22,14 +22,25 @@ interface UseAttendanceReturn {
 }
 
 export const useAttendance = (): UseAttendanceReturn => {
-  const { studentId } = useUser();  // ← user ki jagah studentId
+  const { user, role, activeStudentId } = useUser();
+
+  const isGuardian = role === 'guardian';
+
+  // Dashboard wali same logic
+  const studentId: string | undefined = isGuardian
+    ? (activeStudentId ?? undefined)
+    : (activeStudentId ?? user?.name ?? undefined);
+
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [trigger, setTrigger] = useState(0);
 
   useEffect(() => {
-    if (!studentId) return;  // ← user ki jagah studentId
+    if (!studentId) {
+      setIsLoading(false);
+      return;
+    }
 
     const fetchAttendance = async () => {
       setIsLoading(true);
@@ -37,7 +48,7 @@ export const useAttendance = (): UseAttendanceReturn => {
       try {
         const response: any = await resourceClient.get('Student Attendance', {
           params: {
-            filters: JSON.stringify([['student', '=', studentId]]),  // ← studentId
+            filters: JSON.stringify([['student', '=', studentId]]),
             fields: JSON.stringify([
               'name', 'student', 'student_name', 'course_schedule',
               'student_group', 'date', 'status', 'link_nvfk'
@@ -56,7 +67,7 @@ export const useAttendance = (): UseAttendanceReturn => {
     };
 
     fetchAttendance();
-  }, [studentId, trigger]);  // ← dependency bhi studentId
+  }, [studentId, trigger]);
 
   return {
     attendance,

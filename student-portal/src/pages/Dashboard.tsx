@@ -15,8 +15,14 @@ import {
   XCircle,
   MinusCircle,
   Users,
+  Bell,
+  Newspaper,
+  Radio,
+  ScrollText,
+  Inbox,
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { useNoticeBoard } from '../Hooks/Usenoticeboard';
 
 function pct(num: number, den: number) {
   if (!den) return 0;
@@ -52,6 +58,12 @@ function formatGroup(group: string): string {
   return group?.replace(/^LB-/, '') ?? group;
 }
 
+const NOTICE_TYPE_CONFIG = {
+  NEWS:     { label: 'News',     icon: <Newspaper className="w-3 h-3" />,  color: 'text-blue-700 bg-blue-50',    dot: 'bg-blue-500'   },
+  STREAM:   { label: 'Stream',   icon: <Radio className="w-3 h-3" />,      color: 'text-purple-700 bg-purple-50', dot: 'bg-purple-500' },
+  CIRCULAR: { label: 'Circular', icon: <ScrollText className="w-3 h-3" />, color: 'text-amber-700 bg-amber-50',  dot: 'bg-amber-500'  },
+} as const;
+
 const Section: React.FC<{ title: string; icon: React.ReactNode; count?: number; children: React.ReactNode }> = ({ title, icon, count, children }) => (
   <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
     <div className="p-5 border-b border-gray-50 flex items-center gap-2">
@@ -77,7 +89,6 @@ export const Dashboard: React.FC = () => {
 
   const isGuardian = role === 'guardian';
 
-  // Guardian ke liye: activeStudentId (linked child), Student ke liye: apna ID
   const studentId: string | undefined = isGuardian
     ? (activeStudentId ?? undefined)
     : (activeStudentId ?? user?.name ?? undefined);
@@ -89,6 +100,10 @@ export const Dashboard: React.FC = () => {
   const [isLoading, setIsLoading]     = useState(true);
   const [studentName, setStudentName] = useState<string>('');
 
+  // Notice Board hook
+  const { notices, isLoading: noticesLoading } = useNoticeBoard();
+  const latestNotices = notices.slice(0, 4);
+
   useEffect(() => {
     if (!studentId) {
       setIsLoading(false);
@@ -98,7 +113,6 @@ export const Dashboard: React.FC = () => {
     const fetchData = async () => {
       setIsLoading(true);
       try {
-        // Guardian ke liye student name bhi fetch karo (banner ke liye)
         if (isGuardian) {
           erpService.getStudentById(studentId).then(s => {
             if (s?.student_name) setStudentName(s.student_name);
@@ -190,6 +204,7 @@ export const Dashboard: React.FC = () => {
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {[1,2,3,4].map(i => <div key={i} className="h-64 bg-white rounded-3xl border border-gray-100" />)}
+          <div className="col-span-1 lg:col-span-2 h-40 bg-white rounded-3xl border border-gray-100" />
         </div>
       </div>
     );
@@ -203,7 +218,7 @@ export const Dashboard: React.FC = () => {
         <div className="flex items-center gap-2 bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3">
           <Users className="w-4 h-4 text-blue-500 shrink-0" />
           <p className="text-xs text-blue-700 font-medium">
-            You are viewing <span className="font-bold">{studentName}</span>’s dashboard
+            You are viewing <span className="font-bold">{studentName}</span>'s dashboard
           </p>
         </div>
       )}
@@ -396,6 +411,51 @@ export const Dashboard: React.FC = () => {
             </div>
           )}
         </Section>
+
+        {/* ── Notice Board — full width, Quizzes ke baad ── */}
+        <div className="col-span-1 lg:col-span-2">
+          <Section title="Notice Board" icon={<Bell className="w-4 h-4" />} count={notices.length}>
+            {noticesLoading ? (
+              <div className="p-4 space-y-3">
+                {[1, 2, 3].map(i => (
+                  <div key={i} className="animate-pulse h-16 bg-gray-50 rounded-xl" />
+                ))}
+              </div>
+            ) : latestNotices.length === 0 ? (
+              <EmptyState icon={<Inbox className="w-full h-full" />} label="No notices yet" />
+            ) : (
+              <div className="divide-y divide-gray-50">
+                {latestNotices.map((notice) => {
+                  const cfg = NOTICE_TYPE_CONFIG[notice.type as keyof typeof NOTICE_TYPE_CONFIG] ?? NOTICE_TYPE_CONFIG['NEWS'];
+                  return (
+                    <div key={notice.name} className="p-4 hover:bg-gray-50 transition-colors">
+                      <div className="flex items-start gap-3">
+                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-xs font-bold flex-shrink-0 mt-0.5 ${cfg.color}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+                          {cfg.label}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-gray-900 text-sm">{notice.subject}</p>
+                          <p className="text-xs text-gray-400 mt-0.5 line-clamp-2">{notice.message}</p>
+                        </div>
+                        <span className="text-xs text-gray-300 flex-shrink-0 whitespace-nowrap">
+                          {format(new Date(notice.creation), 'dd MMM')}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+                {notices.length > 4 && (
+                  <div className="px-4 py-3 text-center">
+                    <span className="text-xs text-gray-400 font-medium">
+                      +{notices.length - 4} more — Notice Board mein dekho
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+          </Section>
+        </div>
 
       </div>
     </div>
