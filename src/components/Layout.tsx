@@ -24,6 +24,8 @@ import {
   Inbox,
   Radio,
   ScrollText,
+  School,
+  Timer,
 } from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
@@ -42,21 +44,29 @@ interface NavItem {
   allowedRoles?: UserRole[];
 }
 
-const navItems: NavItem[] = [
-  { name: 'Dashboard',    path: '/',             icon: LayoutDashboard },
-  { name: 'Attendance',   path: '/attendance',   icon: CalendarCheck   },
-  { name: 'Assignments',  path: '/assignments',  icon: FileText        },
-  { name: 'Results',      path: '/results',      icon: GraduationCap,  allowedRoles: ['student'] },
-  { name: 'Quizzes',      path: '/quizzes',      icon: BrainCircuit    },
-  { name: 'Schedule',     path: '/schedule',     icon: CalendarDays    },
-  { name: 'Report Card',  path: '/report-card',  icon: ClipboardList },
-  { name: 'Fees',         path: '/fees',         icon: Wallet,         allowedRoles: ['guardian'] },
-  { name: 'Notice Board', path: '/notice-board', icon: Newspaper },   // ← allowedRoles hata diya
-  { name: 'Profile',      path: '/profile',      icon: UserCircle },
-];
+// ── FIX: getNavItems ab role ke hisaab se dynamic names deta hai ──
+function getNavItems(role: UserRole): NavItem[] {
+  return [
+    { name: 'Dashboard',    path: '/',             icon: LayoutDashboard },
+    { name: 'Attendance',   path: '/attendance',   icon: CalendarCheck   },
+    { name: 'Classroom',    path: '/classroom',    icon: School          },
+    { name: 'Results',      path: '/results',      icon: GraduationCap,  allowedRoles: ['student'] },
+    { name: 'Schedule',     path: '/schedule',     icon: CalendarDays    },
+    { name: 'Report Card',  path: '/report-card',  icon: ClipboardList   },
+    { name: 'Fees',         path: '/fees',         icon: Wallet,         allowedRoles: ['guardian'] },
+    { name: 'Notice Board', path: '/notice-board', icon: Newspaper       },
+    {
+      // Parent Portal mein alag naam, Student Portal mein alag
+      name: role === 'guardian' ? "Child's Activity" : 'Login Activity',
+      path: '/login-activity',
+      icon: Timer,
+    },
+    { name: 'Profile',      path: '/profile',      icon: UserCircle      },
+  ];
+}
 
 function getVisibleNav(role: UserRole): NavItem[] {
-  return navItems.filter(
+  return getNavItems(role).filter(
     (item) => !item.allowedRoles || item.allowedRoles.includes(role)
   );
 }
@@ -244,7 +254,6 @@ const NoticeDropdown: React.FC<{ onClose: () => void; onViewAll: () => void }> =
 
       {/* Notice List */}
       <div style={{ maxHeight: 360, overflowY: 'auto', padding: '8px 10px' }}>
-        {/* Loading */}
         {isLoading && (
           <div style={{ padding: '20px 0' }}>
             {[1, 2].map((i) => (
@@ -260,7 +269,6 @@ const NoticeDropdown: React.FC<{ onClose: () => void; onViewAll: () => void }> =
           </div>
         )}
 
-        {/* Error */}
         {!isLoading && error && (
           <div style={{
             margin: '8px 0',
@@ -286,7 +294,6 @@ const NoticeDropdown: React.FC<{ onClose: () => void; onViewAll: () => void }> =
           </div>
         )}
 
-        {/* Empty */}
         {!isLoading && !error && filteredNotices.length === 0 && (
           <div style={{ padding: '32px 16px', textAlign: 'center' }}>
             <Inbox style={{ width: 32, height: 32, color: '#E5E7EB', margin: '0 auto 8px' }} />
@@ -299,7 +306,6 @@ const NoticeDropdown: React.FC<{ onClose: () => void; onViewAll: () => void }> =
           </div>
         )}
 
-        {/* Notices */}
         {!isLoading && !error && filteredNotices.length > 0 && (
           <AnimatePresence mode="popLayout">
             {filteredNotices.map((notice, i) => {
@@ -322,7 +328,6 @@ const NoticeDropdown: React.FC<{ onClose: () => void; onViewAll: () => void }> =
                   }}
                   className={cfg.border}
                 >
-                  {/* Top row */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                     <span style={{
                       display: 'inline-flex',
@@ -342,17 +347,14 @@ const NoticeDropdown: React.FC<{ onClose: () => void; onViewAll: () => void }> =
                     </span>
                   </div>
 
-                  {/* Subject */}
                   <h4 style={{ fontSize: 13, fontWeight: 700, color: '#111827', margin: '0 0 4px', lineHeight: 1.4 }}>
                     {notice.subject}
                   </h4>
 
-                  {/* Message */}
                   <p style={{ fontSize: 12, color: '#6B7280', margin: 0, lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                     {notice.message}
                   </p>
 
-                  {/* Footer */}
                   <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: 10, color: '#9CA3AF' }}>
                       By <span style={{ fontWeight: 600, color: '#6B7280' }}>{notice.owner}</span>
@@ -366,7 +368,6 @@ const NoticeDropdown: React.FC<{ onClose: () => void; onViewAll: () => void }> =
         )}
       </div>
 
-      {/* Footer — View All */}
       <div style={{ padding: '10px 14px', borderTop: '1px solid #F0F4F0' }}>
         <button
           onClick={onViewAll}
@@ -401,7 +402,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const navigate = useNavigate();
 
   const role: UserRole = user?.role === 'guardian' ? 'guardian' : 'student';
-  const visibleNav = getVisibleNav(role);
+  const visibleNav = getVisibleNav(role);   // ← ab role ke hisaab se dynamic nav milega
 
   const displayName = role === 'guardian'
     ? (user as any)?.guardian_name
@@ -416,7 +417,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     navigate('/login');
   };
 
-  // Close child dropdown on outside click
   React.useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
@@ -427,7 +427,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [childMenuOpen]);
 
-  // Close notice dropdown on outside click
   React.useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (noticeDropdownRef.current && !noticeDropdownRef.current.contains(e.target as Node)) {
@@ -702,7 +701,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       {/* ── Main Content ─────────────────────────────────────────────── */}
       <main style={{ flex: 1, padding: '24px 20px', maxWidth: 1200, margin: '0 auto', width: '100%' }}>
 
-        {/* Top Bar */}
         <div className="flex items-center justify-between" style={{ marginBottom: 28 }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
@@ -722,7 +720,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           </div>
 
           <div className="flex items-center gap-3">
-            {/* ── Notice Bell with Dropdown ── */}
             <div style={{ position: 'relative' }} ref={noticeDropdownRef}>
               <button
                 onClick={() => setNoticeOpen((prev) => !prev)}
@@ -773,7 +770,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           </div>
         </div>
 
-        {/* Page Content */}
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}

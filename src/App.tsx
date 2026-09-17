@@ -5,14 +5,19 @@ import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { AttendancePage } from './pages/Attendance';
-import { AssignmentsPage } from './pages/Assignments';
+// import { AssignmentsPage } from './pages/Assignments';
+// import { AssignmentssubmitPage } from './pages/AssignmentssubmitPage';
 import { ResultsPage } from './pages/Results';
-import { QuizzesPage } from './pages/Quizzes';
+// import { QuizzesPage } from './pages/Quizzes';
 import SchedulePage from './pages/Schedulepage';
 import ProfilePage from './pages/Profilepage';
 import { FeesPage } from './pages/Feespage';
 import { NoticeBoardPage } from './pages/Noticeboardpage';
 import ReportCardPage from './pages/Reportcardpage';
+import ClassroomPage from './pages/Classroom';
+import ClassroomCourseDetailPage from './pages/ClassroomCourseDetail';
+import LoginActivityPage from './pages/LoginActivityPage';
+import ParentLoginActivityPage from './pages/ParentLoginActivityPage';   // ← NAYA import
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading } = useUser();
@@ -32,6 +37,12 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   return <Layout>{children}</Layout>;
 };
 
+// ── Role-based Login Activity Route ──────────────────────────────────────────
+const LoginActivityRoute: React.FC = () => {
+  const { role } = useUser();
+  return role === 'guardian' ? <ParentLoginActivityPage /> : <LoginActivityPage />;
+};
+
 export default function App() {
   return (
     <UserProvider>
@@ -41,15 +52,22 @@ export default function App() {
 
           <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/attendance" element={<ProtectedRoute><AttendancePage /></ProtectedRoute>} />
-          <Route path="/assignments" element={<ProtectedRoute><AssignmentsPage /></ProtectedRoute>} />
+          {/* <Route path="/assignments" element={<ProtectedRoute><AssignmentsPage /></ProtectedRoute>} />
+          <Route path="/assignments/:name" element={<ProtectedRoute><AssignmentssubmitPage /></ProtectedRoute>} /> */}
           <Route path="/results" element={<ProtectedRoute><ResultsPage /></ProtectedRoute>} />
-          <Route path="/quizzes" element={<ProtectedRoute><QuizzesPage /></ProtectedRoute>} />
+          {/* <Route path="/quizzes" element={<ProtectedRoute><QuizzesPage /></ProtectedRoute>} /> */}
           <Route path="/schedule" element={<ProtectedRoute><SchedulePage /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
           <Route path="/fees" element={<ProtectedRoute><FeesPage /></ProtectedRoute>} />
+          <Route path="/classroom" element={<ProtectedRoute><ClassroomPage /></ProtectedRoute>} />
+          <Route path="/classroom/:courseId" element={<ProtectedRoute><ClassroomCourseDetailPage /></ProtectedRoute>} />
           
-<Route path="/report-card"  element={<ProtectedRoute><ReportCardPage /></ProtectedRoute>} />
-<Route path="/notice-board" element={<ProtectedRoute><NoticeBoardPage /></ProtectedRoute>} />
+          <Route path="/report-card" element={<ProtectedRoute><ReportCardPage /></ProtectedRoute>} />
+          <Route path="/notice-board" element={<ProtectedRoute><NoticeBoardPage /></ProtectedRoute>} />
+          
+          {/* ✅ Role-based: Student → LoginActivityPage, Parent → ParentLoginActivityPage */}
+          <Route path="/login-activity" element={<ProtectedRoute><LoginActivityRoute /></ProtectedRoute>} />
+          
           {/* ✅ Fix: catch-all sabse aakhir mein */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

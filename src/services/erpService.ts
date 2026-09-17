@@ -5,6 +5,11 @@ const API_KEY = import.meta.env.VITE_ERP_API_KEY || 'e559cde874cdf6d';
 const API_SECRET = import.meta.env.VITE_ERP_API_SECRET || '355b4f41e87a77c';
 const DEV_ADMIN_TOKEN = `token ${API_KEY}:${API_SECRET}`;
 
+// ── Debug flag (production mein logs band) ────────────────────────────────────
+const DEBUG = import.meta.env.DEV;
+const log = (...args: any[]) => { if (DEBUG) console.log(...args); };
+const warn = (...args: any[]) => { if (DEBUG) console.warn(...args); };
+
 export function getAuthToken(): string | null {
   return localStorage.getItem(AUTH_TOKEN_KEY);
 }
@@ -177,12 +182,25 @@ export interface GuardianEntry {
   relation?: string;
   guardian_email?: string;
 }
-// reportCardApi.ts
-// Learn Academy - Report Card API (Frappe/ERPNext)
+
+export interface GuardianFullDetail {
+  name: string;
+  guardian_name?: string;
+  email_address?: string;
+  mobile_number?: string;
+  alternate_number?: string;
+  date_of_birth?: string;
+  user?: string;
+  id_type?: string;
+  id_number?: string;
+  education?: string;
+  occupation?: string;
+  designation?: string;
+  work_address?: string;
+  relation?: string; // Student.guardians child table se merge hoga
+}
 
 declare const frappe: { csrf_token: string } | undefined;
-
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 export type TemplateType = "KG" | "PRIMARY" | "MIDDLE";
 export type TermType = "Mid Term" | "Final Term";
@@ -205,6 +223,22 @@ export interface PSDRow {
   objective: string;
   mid_term: PSDOption;
   final_term: PSDOption;
+}
+
+export interface AssignmentDetail {
+  name: string;
+  owner: string;
+  creation: string;
+  modified: string;
+  modified_by: string;
+  docstatus: number;
+  idx: number;
+  course: string;
+  link_gdbv: string;
+  heading: string;
+  description: string;
+  due_date?: string;
+  doctype: string;
 }
 
 export interface ReportCardDoc {
@@ -248,7 +282,39 @@ export interface ComputedStats {
   percentage: string;
   grade: string;
 }
+export interface QuizQuestionItem {
+  name: string;
+  idx: number;
+  question_link: string;
+  question: string;
+}
 
+export interface QuizDoc {
+  name: string;
+  title: string;
+  passing_score: number;
+  max_attempts: number;
+  grading_basis: string;
+  is_time_bound: 0 | 1;
+  duration: number;
+  creation: string;
+  question?: QuizQuestionItem[];
+}
+
+export interface QuizResult {
+  name: string;
+  student: string;
+  quiz: string;
+  score?: number;
+  status?: 'Completed' | 'In Progress';
+  [key: string]: any;
+}
+
+export interface QuizWithResult extends QuizDoc {
+  status: 'Completed' | 'Not Started';
+  score: number | null;
+  date: string;
+}
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 export const GRADES: string[] = [
@@ -456,6 +522,21 @@ export interface ProgramEnrollment {
   courses: EnrolledCourse[];
 }
 
+export interface AssignmentSubmission {
+  name: string;
+  assignment: string;
+  assignmentstudent: string;
+  course: string;
+  courseschedule: string;
+  submissiondate: string;
+  answer: string;
+  status: 'Draft' | 'Submitted' | 'Graded';
+  gradedby?: string;
+  docstatus: number;
+  creation: string;
+  modified: string;
+}
+
 export interface CourseScheduleEntry {
   name: string;
   course: string;
@@ -474,7 +555,6 @@ export interface CourseScheduleEntry {
   studentId?: string;
   startDate?: string;
   endDate?: string;
-  // FIX: custom_meeting_link field added — was (entry as any).meeting_link before
   custom_meeting_link?: string;
 }
 
@@ -524,6 +604,15 @@ async function enrichCourseNames(
     ...e,
     course_name: e.course_name || map[e.course] || e.course,
   }));
+}
+
+// ── Date Helper ───────────────────────────────────────────────────────────────
+function toFrappeDatetime(date: Date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
+    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+  );
 }
 
 // ── erpService ────────────────────────────────────────────────────────────────
@@ -613,28 +702,27 @@ export const erpService = {
   // ── Student ────────────────────────────────────────────────────────────────
 
   getStudentDetails: async (email: string): Promise<StudentProfile | null> => {
-  const fields = [
-    "student_email_id", // sirf yeh field standard ERPNext Student doctype mein guaranteed hai
-  ];
-  for (const field of fields) {
-    try {
-      const res: any = await resourceClient.get("Student", {
-        params: {
-          filters: JSON.stringify([
-            [field, "=", email],
-            ["enabled", "=", 1],
-          ]),
-          fields: JSON.stringify(["*"]),
-        },
-      });
-      if (res.data?.length > 0) return res.data[0];
-    } catch (err) {
-      console.warn(`[getStudentDetails] field "${field}" failed:`, err);
-      // try next
+    const fields = [
+      "student_email_id",
+    ];
+    for (const field of fields) {
+      try {
+        const res: any = await resourceClient.get("Student", {
+          params: {
+            filters: JSON.stringify([
+              [field, "=", email],
+              ["enabled", "=", 1],
+            ]),
+            fields: JSON.stringify(["*"]),
+          },
+        });
+        if (res.data?.length > 0) return res.data[0];
+      } catch (err) {
+        warn(`[getStudentDetails] field "${field}" failed:`, err);
+      }
     }
-  }
-  return null;
-},
+    return null;
+  },
 
   getStudentById: async (studentId: string): Promise<StudentProfile | null> => {
     try {
@@ -705,36 +793,148 @@ export const erpService = {
       });
       return res?.data || [];
     } catch (err: any) {
-      console.warn("[getAssignments] failed (likely 403):", err?.response?.status);
+      warn("[getAssignments] failed (likely 403):", err?.response?.status);
+      return [];
+    }
+  },
+
+  getSubmissionForAssignment: async (
+    assignmentId: string,
+    studentId: string
+  ): Promise<AssignmentSubmission | null> => {
+    try {
+      const res: any = await resourceClient.get(
+        "Student Assignment Submission",
+        {
+          params: {
+            filters: JSON.stringify([
+              ["assignment", "=", assignmentId],
+              ["assignmentstudent", "=", studentId],
+            ]),
+            fields: JSON.stringify(["*"]),
+            limit_page_length: 1,
+          },
+        }
+      );
+      const list: AssignmentSubmission[] = res?.data || [];
+      return list.length > 0 ? list[0] : null;
+    } catch (err) {
+      console.error("[getSubmissionForAssignment] error:", err);
+      return null;
+    }
+  },
+
+  saveSubmission: async (payload: {
+    name?: string;
+    assignment: string;
+    assignmentstudent: string;
+    course: string;
+    courseschedule: string;
+    answer: string;
+    status: "Draft" | "Submitted";
+  }): Promise<AssignmentSubmission | null> => {
+    try {
+      if (payload.name) {
+        const res: any = await resourceClient.put(
+          `Student Assignment Submission/${encodeURIComponent(payload.name)}`,
+          {
+            answer: payload.answer,
+            status: payload.status,
+            submissiondate: toFrappeDatetime(),
+          }
+        );
+        return res?.data || null;
+      }
+
+      const res: any = await resourceClient.post(
+        "Student Assignment Submission",
+        {
+          assignment: payload.assignment,
+          assignmentstudent: payload.assignmentstudent,
+          course: payload.course,
+          courseschedule: payload.courseschedule,
+          answer: payload.answer,
+          status: payload.status,
+          submissiondate: toFrappeDatetime(),
+        }
+      );
+      return res?.data || null;
+    } catch (err) {
+      console.error("[saveSubmission] error:", err);
+      throw err;
+    }
+  },
+
+  // ── Quizzes ────────────────────────────────────────────────────────────────
+
+  getQuizList: async (): Promise<QuizDoc[]> => {
+    try {
+      const res: any = await resourceClient.get("Quiz", {
+        params: {
+          fields: JSON.stringify([
+            "name", "title", "passing_score", "max_attempts",
+            "grading_basis", "is_time_bound", "duration", "creation",
+          ]),
+          limit_page_length: 200,
+          order_by: "creation desc",
+        },
+      });
+      return res?.data || [];
+    } catch (err: any) {
+      warn("[getQuizList] failed (likely 403):", err?.response?.status);
+      return [];
+    }
+  },
+
+  getQuizDetail: async (quizName: string): Promise<QuizDoc | null> => {
+    try {
+      const res: any = await resourceClient.get(`Quiz/${encodeURIComponent(quizName)}`);
+      return res?.data || null;
+    } catch (err) {
+      console.error("[getQuizDetail] error:", err);
+      return null;
+    }
+  },
+
+  getQuizzesWithResults: async (studentId: string): Promise<QuizWithResult[]> => {
+    try {
+      const quizzes = await erpService.getQuizList();
+      return quizzes.map((quiz) => ({
+        ...quiz,
+        status: "Not Started" as const,
+        score: null,
+        date: quiz.creation,
+      }));
+    } catch (err) {
+      console.error("[getQuizzesWithResults] error:", err);
       return [];
     }
   },
 
   getResults: async (studentId: string) => {
-  // Try 1: student ID se
-  try {
-    const res: any = await resourceClient.get("Assessment Result", {
-      params: {
-        filters: JSON.stringify([["student", "=", studentId]]),
-        fields: JSON.stringify(["*"]),
-        limit_page_length: 200,
-      },
-    });
-    if (res?.data?.length > 0) return res.data;
-  } catch {}
-  try {
-    const res: any = await resourceClient.get("Assessment Result", {
-      params: {
-        filters: JSON.stringify([["student_name", "=", studentId]]),
-        fields: JSON.stringify(["*"]),
-        limit_page_length: 200,
-      },
-    });
-    return res?.data || [];
-  } catch {}
-  
-  return [];
-},
+    try {
+      const res: any = await resourceClient.get("Assessment Result", {
+        params: {
+          filters: JSON.stringify([["student", "=", studentId]]),
+          fields: JSON.stringify(["*"]),
+          limit_page_length: 200,
+        },
+      });
+      if (res?.data?.length > 0) return res.data;
+    } catch {}
+    try {
+      const res: any = await resourceClient.get("Assessment Result", {
+        params: {
+          filters: JSON.stringify([["student_name", "=", studentId]]),
+          fields: JSON.stringify(["*"]),
+          limit_page_length: 200,
+        },
+      });
+      return res?.data || [];
+    } catch {}
+
+    return [];
+  },
 
   getQuizzes: async (studentId: string) => {
     try {
@@ -746,78 +946,158 @@ export const erpService = {
       });
       return res?.data || [];
     } catch (err: any) {
-      console.warn("[getQuizzes] failed (likely 403):", err?.response?.status);
+      warn("[getQuizzes] failed (likely 403):", err?.response?.status);
       return [];
     }
   },
 
+  // ── Academic Assignments ────────────────────────────────────────────────────
+  getAcademicAssignments: async (studentId: string): Promise<AssignmentDetail[]> => {
+    try {
+      const enrollments = await erpService.getEnrolledCourses(studentId);
+      const courseIds = [...new Set(
+        enrollments.flatMap((e) => e.courses.map((c) => c.course)).filter(Boolean)
+      )];
 
-// ── getGuardianDetails — drop-in replacement ─────────────────────────────────
-// Paste this inside erpService object, replacing the existing getGuardianDetails
+      log("[getAcademicAssignments] studentId:", studentId, "| course codes:", courseIds);
 
-getGuardianDetails: async (userId: string) => {
-  try {
-    // Step 1: Guardian record dhundo user field se
-    const res: any = await resourceClient.get('Guardian', {
-      params: {
-        filters: JSON.stringify([['user', '=', userId]]),
-        fields: JSON.stringify([
-          'name', 'guardian_name', 'email_address', 'mobile_number', 'user',
-        ]),
-        limit_page_length: 1,
-      },
-    });
+      if (courseIds.length === 0) {
+        warn("[getAcademicAssignments] No enrolled courses found — returning empty list");
+        return [];
+      }
 
-    const guardian = res?.data?.[0];
-    if (!guardian) return null;
+      const res: any = await resourceClient.get("Academic Assignments", {
+        params: {
+          filters: JSON.stringify([["course", "in", courseIds]]),
+          fields: JSON.stringify([
+            "name", "course", "link_gdbv", "heading", "description",
+            "creation", "modified", "owner", "modified_by",
+            "docstatus", "idx", "doctype",
+          ]),
+          limit_page_length: 500,
+          order_by: "creation desc",
+        },
+      });
 
-    // Step 2: Full Guardian doc fetch karo (students child table ke saath)
-    const fullRes: any = await resourceClient.get(
-      `Guardian/${encodeURIComponent(guardian.name)}`
-    );
-    const fullGuardian = fullRes?.data;
-
-    // Step 3: students array check karo
-    const studentsArr = fullGuardian?.students || [];
-    console.log('[getGuardianDetails] guardian:', guardian.name, '| students array:', studentsArr);
-
-    if (studentsArr.length > 0) {
-      return fullGuardian; // sahi data — students[0].student = "PKLS809"
+      return res?.data || [];
+    } catch (err) {
+      console.error("[getAcademicAssignments] error:", err);
+      return [];
     }
+  },
 
-    // ── Fallback: Student doctype mein guardian link dhundo ────────────────
-    // Agar Guardian doc mein students[] nahi aaya, toh Student doctype mein
-    // "guardians" child table check karo — wahan guardian field hoti hai
-    console.warn('[getGuardianDetails] students[] empty — trying Student reverse lookup');
+  // ── Bulk Submissions ────────────────────────────────────────────────────────
+  getSubmissionsForStudent: async (
+    studentId: string
+  ): Promise<AssignmentSubmission[]> => {
+    try {
+      const res: any = await resourceClient.get("Student Assignment Submission", {
+        params: {
+          filters: JSON.stringify([["assignmentstudent", "=", studentId]]),
+          fields: JSON.stringify(["name", "assignment", "status", "submissiondate"]),
+          limit_page_length: 500,
+        },
+      });
+      return res?.data || [];
+    } catch (err) {
+      console.error("[getSubmissionsForStudent] error:", err);
+      return [];
+    }
+  },
 
-    const studentRes: any = await resourceClient.get('Student', {
-      params: {
-        filters: JSON.stringify([
-          ['Student Guardian', 'guardian', '=', guardian.name],
-          ['enabled', '=', 1],
-        ]),
-        fields: JSON.stringify(['name', 'student_name']),
-        limit_page_length: 10,
-      },
-    });
+  // ── Guardian (by User) ──────────────────────────────────────────────────────
+  getGuardianByUser: async (userId: string) => {
+    try {
+      const res: any = await resourceClient.get('Guardian', {
+        params: {
+          filters: JSON.stringify([['user', '=', userId]]),
+          fields: JSON.stringify([
+            'name', 'guardian_name', 'email_address', 'mobile_number', 'user',
+          ]),
+          limit_page_length: 1,
+        },
+      });
 
-    const linkedStudents: any[] = studentRes?.data || [];
-    console.log('[getGuardianDetails] reverse lookup students:', linkedStudents);
+      const guardian = res?.data?.[0];
+      if (!guardian) return null;
 
-    // Guardian object mein students array manually inject karo
-    return {
-      ...fullGuardian,
-      students: linkedStudents.map((s: any) => ({
-        student: s.name,
-        student_name: s.student_name,
-      })),
-    };
+      const fullRes: any = await resourceClient.get(
+        `Guardian/${encodeURIComponent(guardian.name)}`
+      );
+      const fullGuardian = fullRes?.data;
 
-  } catch (err) {
-    console.error('[getGuardianDetails] error:', err);
-    return null;
-  }
-},
+      const studentsArr = fullGuardian?.students || [];
+      log('[getGuardianByUser] guardian:', guardian.name, '| students array:', studentsArr);
+
+      if (studentsArr.length > 0) {
+        return fullGuardian;
+      }
+
+      warn('[getGuardianByUser] students[] empty — trying Student reverse lookup');
+
+      const studentRes: any = await resourceClient.get('Student', {
+        params: {
+          filters: JSON.stringify([
+            ['Student Guardian', 'guardian', '=', guardian.name],
+            ['enabled', '=', 1],
+          ]),
+          fields: JSON.stringify(['name', 'student_name']),
+          limit_page_length: 10,
+        },
+      });
+
+      const linkedStudents: any[] = studentRes?.data || [];
+      log('[getGuardianByUser] reverse lookup students:', linkedStudents);
+
+      return {
+        ...fullGuardian,
+        students: linkedStudents.map((s: any) => ({
+          student: s.name,
+          student_name: s.student_name,
+        })),
+      };
+
+    } catch (err) {
+      console.error('[getGuardianByUser] error:', err);
+      return null;
+    }
+  },
+
+  // ── Guardians of a Student (fetch full details by IDs) ────────────────────
+  getGuardiansDetail: async (guardianIds: string[]): Promise<GuardianFullDetail[]> => {
+    if (!guardianIds || guardianIds.length === 0) return [];
+    const uniqueIds = [...new Set(guardianIds.filter(Boolean))];
+
+    const results = await Promise.allSettled(
+      uniqueIds.map(async (id) => {
+        const res: any = await resourceClient.get(
+          `Guardian/${encodeURIComponent(id)}`,
+          {
+            params: {
+              fields: JSON.stringify([
+                'name', 'guardian_name', 'email_address', 'mobile_number',
+                'alternate_number', 'date_of_birth', 'user', 'id_type',
+                'id_number', 'education', 'occupation', 'designation', 'work_address',
+              ]),
+            },
+          }
+        );
+        return res?.data as GuardianFullDetail | undefined;
+      })
+    );
+
+    const guardians = results
+      .filter(
+        (r): r is PromiseFulfilledResult<GuardianFullDetail> =>
+          r.status === 'fulfilled' && !!r.value
+      )
+      .map((r) => r.value);
+
+    log('[getGuardiansDetail] fetched:', guardians.length, 'of', uniqueIds.length);
+
+    return guardians;
+  },
+
   // ── Course Enrollments ─────────────────────────────────────────────────────
 
   getCourseEnrollments: async (studentId: string): Promise<CourseEnrollment[]> => {
@@ -834,227 +1114,200 @@ getGuardianDetails: async (userId: string) => {
     return (res?.data as CourseEnrollment[]) || [];
   },
 
-  // ── Enrolled Courses ───────────────────────────────────────────────────────
-
-// ── getEnrolledCourses — FINAL FIX ───────────────────────────────────────────
-// Paste this inside erpService object, replacing the existing getEnrolledCourses
-//
-// ROOT CAUSE: Loop [1, 0, 2] se student ke 2 alag Program Enrollments aate thay
-// (ek submitted docstatus=1, ek draft docstatus=0) — dono mein 3 courses =  6 total.
-// FIX: Sab enrollments fetch karo, phir student ke liye SIRF EK best wala use karo.
-
-getEnrolledCourses: async (
-  studentId: string
-): Promise<ProgramEnrollment[]> => {
-  try {
-
-    // ── Step 1: Sab Program Enrollments ek saath fetch karo ───────────────
-    let allEnrollments: any[] = [];
+  // ── getEnrolledCourses ─────────────────────────────────────────────────────
+  getEnrolledCourses: async (
+    studentId: string
+  ): Promise<ProgramEnrollment[]> => {
     try {
-      const res: any = await resourceClient.get("Program Enrollment", {
+      let allEnrollments: any[] = [];
+      try {
+        const res: any = await resourceClient.get("Program Enrollment", {
+          params: {
+            filters: JSON.stringify([["student", "=", studentId]]),
+            fields: JSON.stringify([
+              "name", "program", "student", "student_name",
+              "enrollment_date", "academic_year", "academic_term",
+              "student_batch_name", "docstatus",
+            ]),
+            limit_page_length: 100,
+            order_by: "docstatus desc, enrollment_date desc",
+          },
+        });
+        allEnrollments = res?.data || [];
+      } catch { /* skip */ }
+
+      log("[getEnrolledCourses] Total enrollments found:", allEnrollments.length,
+        allEnrollments.map((e: any) => `${e.name}(status=${e.docstatus})`));
+
+      if (allEnrollments.length > 0) {
+        const bestPerProgram = new Map<string, any>();
+        for (const e of allEnrollments) {
+          const key = e.program || e.name;
+          const existing = bestPerProgram.get(key);
+          if (!existing) {
+            bestPerProgram.set(key, e);
+          } else {
+            if (e.docstatus === 1 && existing.docstatus !== 1) {
+              bestPerProgram.set(key, e);
+            }
+          }
+        }
+
+        const uniqueEnrollments = [...bestPerProgram.values()];
+        log("[getEnrolledCourses] Unique enrollments after dedup:",
+          uniqueEnrollments.map((e: any) => `${e.name}(status=${e.docstatus})`));
+
+        const enriched = await Promise.all(
+          uniqueEnrollments.map(async (enrollment: any) => {
+            try {
+              const docRes: any = await resourceClient.get(
+                `Program Enrollment/${encodeURIComponent(enrollment.name)}`
+              );
+
+              const seenCourses = new Set<string>();
+              const courses: EnrolledCourse[] = (docRes?.data?.courses || [])
+                .filter((c: any) => {
+                  if (!c.course || seenCourses.has(c.course)) return false;
+                  seenCourses.add(c.course);
+                  return true;
+                })
+                .map((c: any) => ({
+                  name:        c.name,
+                  course:      c.course,
+                  course_name: c.course_name || c.course,
+                  docstatus:   c.docstatus ?? enrollment.docstatus,
+                }));
+
+              log(`[getEnrolledCourses] ${enrollment.name} → ${courses.length} courses`);
+              return { ...enrollment, courses };
+            } catch {
+              return { ...enrollment, courses: [] };
+            }
+          })
+        );
+
+        if (enriched.some((e: any) => e.courses.length > 0)) {
+          return enriched;
+        }
+
+        warn("[getEnrolledCourses] No courses in Program Enrollment — trying fallback");
+      }
+
+      log("[getEnrolledCourses] Course Enrollment fallback for:", studentId);
+
+      const ceRes: any = await resourceClient.get("Course Enrollment", {
         params: {
           filters: JSON.stringify([["student", "=", studentId]]),
           fields: JSON.stringify([
-            "name", "program", "student", "student_name",
-            "enrollment_date", "academic_year", "academic_term",
-            "student_batch_name", "docstatus",
+            "name", "course", "program", "enrollment_date", "program_enrollment",
           ]),
           limit_page_length: 100,
-          order_by: "docstatus desc, enrollment_date desc", // submitted (1) pehle
         },
       });
-      allEnrollments = res?.data || [];
-    } catch { /* skip */ }
 
-    console.log("[getEnrolledCourses] Total enrollments found:", allEnrollments.length,
-      allEnrollments.map((e: any) => `${e.name}(status=${e.docstatus})`));
+      const ceRows: any[] = ceRes?.data || [];
+      if (ceRows.length === 0) return [];
 
-    if (allEnrollments.length > 0) {
+      const seenCe = new Set<string>();
+      const uniqueCeRows = ceRows.filter((r: any) => {
+        if (!r.course || seenCe.has(r.course)) return false;
+        seenCe.add(r.course);
+        return true;
+      });
 
-      // ── Step 2: SIRF EK best enrollment use karo per program ─────────────
-      // Same program ka duplicate hoga (draft + submitted) — submitted prefer karo
-      const bestPerProgram = new Map<string, any>();
-      for (const e of allEnrollments) {
-        const key = e.program || e.name;
-        const existing = bestPerProgram.get(key);
-        if (!existing) {
-          bestPerProgram.set(key, e);
-        } else {
-          // docstatus=1 (submitted) > docstatus=0 (draft) > docstatus=2 (cancelled)
-          if (e.docstatus === 1 && existing.docstatus !== 1) {
-            bestPerProgram.set(key, e);
+      const courseNameMap: Record<string, string> = {};
+      await Promise.allSettled(
+        [...new Set(uniqueCeRows.map((r: any) => r.course).filter(Boolean))].map(
+          async (courseId: string) => {
+            try {
+              const r: any = await resourceClient.get(
+                `Course/${encodeURIComponent(courseId)}`,
+                { params: { fields: JSON.stringify(["name", "course_name"]) } }
+              );
+              if (r?.data?.course_name) courseNameMap[courseId] = r.data.course_name;
+            } catch { /* ignore */ }
           }
-        }
-      }
-
-      const uniqueEnrollments = [...bestPerProgram.values()];
-      console.log("[getEnrolledCourses] Unique enrollments after dedup:",
-        uniqueEnrollments.map((e: any) => `${e.name}(status=${e.docstatus})`));
-
-      // ── Step 3: Har enrollment ka full doc fetch karo (courses ke saath) ──
-      const enriched = await Promise.all(
-        uniqueEnrollments.map(async (enrollment: any) => {
-          try {
-            const docRes: any = await resourceClient.get(
-              `Program Enrollment/${encodeURIComponent(enrollment.name)}`
-            );
-
-            // Course-level dedup by course ID
-            const seenCourses = new Set<string>();
-            const courses: EnrolledCourse[] = (docRes?.data?.courses || [])
-              .filter((c: any) => {
-                if (!c.course || seenCourses.has(c.course)) return false;
-                seenCourses.add(c.course);
-                return true;
-              })
-              .map((c: any) => ({
-                name:        c.name,
-                course:      c.course,
-                course_name: c.course_name || c.course,
-                docstatus:   c.docstatus ?? enrollment.docstatus,
-              }));
-
-            console.log(`[getEnrolledCourses] ${enrollment.name} → ${courses.length} courses`);
-            return { ...enrollment, courses };
-          } catch {
-            return { ...enrollment, courses: [] };
-          }
-        })
+        )
       );
 
-      if (enriched.some((e: any) => e.courses.length > 0)) {
-        return enriched;
-      }
-
-      console.warn("[getEnrolledCourses] No courses in Program Enrollment — trying fallback");
-    }
-
-    // ── Fallback: Course Enrollment directly ──────────────────────────────
-    console.log("[getEnrolledCourses] Course Enrollment fallback for:", studentId);
-
-    const ceRes: any = await resourceClient.get("Course Enrollment", {
-      params: {
-        filters: JSON.stringify([["student", "=", studentId]]),
-        fields: JSON.stringify([
-          "name", "course", "program", "enrollment_date", "program_enrollment",
-        ]),
-        limit_page_length: 100,
-      },
-    });
-
-    const ceRows: any[] = ceRes?.data || [];
-    if (ceRows.length === 0) return [];
-
-    // Course-level dedup
-    const seenCe = new Set<string>();
-    const uniqueCeRows = ceRows.filter((r: any) => {
-      if (!r.course || seenCe.has(r.course)) return false;
-      seenCe.add(r.course);
-      return true;
-    });
-
-    const courseNameMap: Record<string, string> = {};
-    await Promise.allSettled(
-      [...new Set(uniqueCeRows.map((r: any) => r.course).filter(Boolean))].map(
-        async (courseId: string) => {
-          try {
-            const r: any = await resourceClient.get(
-              `Course/${encodeURIComponent(courseId)}`,
-              { params: { fields: JSON.stringify(["name", "course_name"]) } }
-            );
-            if (r?.data?.course_name) courseNameMap[courseId] = r.data.course_name;
-          } catch { /* ignore */ }
+      const programMap: Record<string, ProgramEnrollment> = {};
+      for (const ce of uniqueCeRows) {
+        const key = ce.program_enrollment || ce.program || "unknown";
+        if (!programMap[key]) {
+          programMap[key] = {
+            name: key, program: ce.program || "",
+            student: studentId, student_name: "",
+            enrollment_date: ce.enrollment_date || "",
+            academic_year: "", academic_term: "",
+            student_batch_name: "", docstatus: 0, courses: [],
+          };
         }
-      )
-    );
-
-    const programMap: Record<string, ProgramEnrollment> = {};
-    for (const ce of uniqueCeRows) {
-      const key = ce.program_enrollment || ce.program || "unknown";
-      if (!programMap[key]) {
-        programMap[key] = {
-          name: key, program: ce.program || "",
-          student: studentId, student_name: "",
-          enrollment_date: ce.enrollment_date || "",
-          academic_year: "", academic_term: "",
-          student_batch_name: "", docstatus: 0, courses: [],
-        };
+        programMap[key].courses.push({
+          name: ce.name, course: ce.course,
+          course_name: courseNameMap[ce.course] || ce.course,
+          docstatus: 0,
+        });
       }
-      programMap[key].courses.push({
-        name: ce.name, course: ce.course,
-        course_name: courseNameMap[ce.course] || ce.course,
-        docstatus: 0,
-      });
+
+      return Object.values(programMap);
+
+    } catch (err) {
+      console.error("[getEnrolledCourses] error:", err);
+      return [];
+    }
+  },
+
+  // ── Notice Board ────────────────────────────────────────────────────────────
+  getNoticeBoard: async (): Promise<Notice[]> => {
+    const doctypeNames = [
+      'Notice Board',
+      'NoticeBoard',
+      'School Notice',
+      'Notice',
+      'Announcement',
+      'LMS Announcement',
+    ];
+
+    for (const doctype of doctypeNames) {
+      try {
+        const res: any = await resourceClient.get(doctype, {
+          params: {
+            fields: JSON.stringify([
+              'name', 'subject', 'message', 'type', 'creation', 'owner',
+            ]),
+            order_by: 'creation desc',
+            limit_page_length: 50,
+          },
+        });
+
+        const data = res?.data;
+        if (Array.isArray(data)) {
+          log(`[getNoticeBoard] Found notices using doctype: "${doctype}", count:`, data.length);
+          return data;
+        }
+      } catch (err: any) {
+        const status = err?.response?.status;
+        log(`[getNoticeBoard] doctype "${doctype}" failed with status:`, status);
+
+        if (status === 403) {
+          warn(`[getNoticeBoard] 403 on "${doctype}" — doctype exists but no permission`);
+        }
+        continue;
+      }
     }
 
-    return Object.values(programMap);
-
-  } catch (err) {
-    console.error("[getEnrolledCourses] error:", err);
+    console.error('[getNoticeBoard] No valid Notice Board doctype found. Tried:', doctypeNames);
     return [];
-  }
-},
+  },
 
-
-// ── getNoticeBoard — FIXED ────────────────────────────────────────────────────
-// Paste this inside erpService object, replacing the existing getNoticeBoard
-//
-// PROBLEM: 'NoticeBoard' doctype naam ERPNext mein alag ho sakta hai
-// FIX: Multiple possible names try karo
-
-getNoticeBoard: async (): Promise<Notice[]> => {
-  // ERPNext mein Notice Board ke possible doctype names
-  const doctypeNames = [
-    'Notice Board',       // space ke saath (most common)
-    'NoticeBoard',        // bina space
-    'School Notice',
-    'Notice',
-    'Announcement',
-    'LMS Announcement',
-  ];
-
-  for (const doctype of doctypeNames) {
-    try {
-      const res: any = await resourceClient.get(doctype, {
-        params: {
-          fields: JSON.stringify([
-            'name', 'subject', 'message', 'type', 'creation', 'owner',
-          ]),
-          order_by: 'creation desc',
-          limit_page_length: 50,
-        },
-      });
-
-      const data = res?.data;
-      if (Array.isArray(data)) {
-        console.log(`[getNoticeBoard] Found notices using doctype: "${doctype}", count:`, data.length);
-        return data;
-      }
-    } catch (err: any) {
-      const status = err?.response?.status;
-      console.log(`[getNoticeBoard] doctype "${doctype}" failed with status:`, status);
-      // 404 = doctype exist nahi — next try karo
-      // 403 = exist karta hai lekin permission nahi — yeh important hai
-      if (status === 403) {
-        console.warn(`[getNoticeBoard] 403 on "${doctype}" — doctype exists but no permission`);
-      }
-      continue;
-    }
-  }
-
-  console.error('[getNoticeBoard] No valid Notice Board doctype found. Tried:', doctypeNames);
-  return [];
-},
   // ── Student Groups ─────────────────────────────────────────────────────────
-
   getStudentGroups: async (studentId: string): Promise<string[]> => {
- 
     const currentYear = new Date().getFullYear().toString();
     const nextYear    = (new Date().getFullYear() + 1).toString();
     const yearFormats = [
-      currentYear,                       
-      `${currentYear}-${nextYear}`,       
-      nextYear,                          
+      currentYear,
+      `${currentYear}-${nextYear}`,
+      nextYear,
     ];
 
     for (const academicYear of yearFormats) {
@@ -1073,15 +1326,13 @@ getNoticeBoard: async (): Promise<Notice[]> => {
           .map((g: any) => g.name)
           .filter(Boolean) as string[];
 
-        console.log(`[getStudentGroups] strategy1 (academic_year=${academicYear}) found:`, groups);
+        log(`[getStudentGroups] strategy1 (academic_year=${academicYear}) found:`, groups);
         if (groups.length > 0) return groups;
       } catch (err) {
         console.error(`[getStudentGroups] strategy1 (academic_year=${academicYear}) error:`, err);
       }
     }
 
-    // ── Strategy 2: Bina academic_year ke — Student Group Student child table ──
-    // (original fallback, active filter hataya — SQL mein bhi nahi tha)
     try {
       const res: any = await resourceClient.get("Student Group Student", {
         params: {
@@ -1096,13 +1347,12 @@ getNoticeBoard: async (): Promise<Notice[]> => {
       const groups = [...new Set(
         rows.map((r: any) => r.parent).filter(Boolean)
       )] as string[];
-      console.log("[getStudentGroups] strategy2 (no academic_year) found:", groups);
+      log("[getStudentGroups] strategy2 (no academic_year) found:", groups);
       if (groups.length > 0) return groups;
     } catch (err) {
       console.error("[getStudentGroups] strategy2 error:", err);
     }
 
-    // ── Strategy 3: Student Group parent-level filter ──────────────────────
     try {
       const res: any = await resourceClient.get("Student Group", {
         params: {
@@ -1114,7 +1364,7 @@ getNoticeBoard: async (): Promise<Notice[]> => {
         },
       });
       const groups = (res?.data || []).map((g: any) => g.name).filter(Boolean);
-      console.log("[getStudentGroups] strategy3 found:", groups);
+      log("[getStudentGroups] strategy3 found:", groups);
       return groups;
     } catch (err) {
       console.error("[getStudentGroups] strategy3 error:", err);
@@ -1156,27 +1406,23 @@ getNoticeBoard: async (): Promise<Notice[]> => {
   },
 
   // ── Course Schedule ────────────────────────────────────────────────────────
-  // FIX: custom_meeting_link field added to both strategy 1 and strategy 2 fetches
-  // This matches the SQL: SELECT custom_meeting_link FROM tabCourse Schedule
 
   getStudentSchedule: async (
     studentId: string,
     startDate?: string,
     endDate?: string
   ): Promise<CourseScheduleEntry[]> => {
-    // Schedule fields — same in both strategies (DRY)
     const SCHEDULE_FIELDS = JSON.stringify([
       "name", "course", "course_name", "instructor", "instructor_name",
       "room", "schedule_date", "from_time", "to_time",
       "student_group", "color", "class_schedule_color", "title", "program",
-      "custom_meeting_link",  // FIX: SQL mein tha, ab API mein bhi hai
+      "custom_meeting_link",
     ]);
 
     try {
       const groups = await erpService.getStudentGroups(studentId);
-      console.log("[getStudentSchedule] studentId:", studentId, "groups:", groups);
+      log("[getStudentSchedule] studentId:", studentId, "groups:", groups);
 
-      // ── Strategy 1: student_group filter (SQL jaisi — via student groups) ──
       if (groups.length > 0) {
         const filters: any[] = [
           ["student_group", "in", groups],
@@ -1197,17 +1443,16 @@ getNoticeBoard: async (): Promise<Notice[]> => {
         const schedule: CourseScheduleEntry[] = res?.data || [];
 
         if (schedule.length > 0) {
-          console.log("[getStudentSchedule] Strategy 1 schedules found:", schedule.length);
+          log("[getStudentSchedule] Strategy 1 schedules found:", schedule.length);
           return await enrichCourseNames(schedule);
         }
 
-        console.warn("[getStudentSchedule] Groups found but no schedules — trying Course Enrollment fallback");
+        warn("[getStudentSchedule] Groups found but no schedules — trying Course Enrollment fallback");
       } else {
-        console.warn("[getStudentSchedule] No student groups — trying Course Enrollment fallback");
+        warn("[getStudentSchedule] No student groups — trying Course Enrollment fallback");
       }
 
-      // ── Strategy 2: Course Enrollment se course IDs nikaalo ───────────────
-      console.log("[getStudentSchedule] Fetching Course Enrollments for:", studentId);
+      log("[getStudentSchedule] Fetching Course Enrollments for:", studentId);
 
       const enrollRes: any = await resourceClient.get("Course Enrollment", {
         params: {
@@ -1218,14 +1463,14 @@ getNoticeBoard: async (): Promise<Notice[]> => {
       });
 
       const enrollments: any[] = enrollRes?.data || [];
-      console.log("[getStudentSchedule] Course Enrollments found:", enrollments.length);
+      log("[getStudentSchedule] Course Enrollments found:", enrollments.length);
 
       if (enrollments.length === 0) return [];
 
       const courseIds = [...new Set(
         enrollments.map((e: any) => e.course).filter(Boolean)
       )];
-      console.log("[getStudentSchedule] Unique course IDs:", courseIds);
+      log("[getStudentSchedule] Unique course IDs:", courseIds);
 
       const schedFilters: any[] = [
         ["course", "in", courseIds],
@@ -1244,7 +1489,7 @@ getNoticeBoard: async (): Promise<Notice[]> => {
       });
 
       const schedule: CourseScheduleEntry[] = schedRes?.data || [];
-      console.log("[getStudentSchedule] Strategy 2 schedules found:", schedule.length);
+      log("[getStudentSchedule] Strategy 2 schedules found:", schedule.length);
 
       return await enrichCourseNames(schedule);
     } catch (err) {
@@ -1277,7 +1522,7 @@ getNoticeBoard: async (): Promise<Notice[]> => {
     const startDate = fmt(monday);
     const endDate   = fmt(sunday);
 
-    console.log("[getWeeklySchedule] weekOffset:", weekOffset, "range:", startDate, "→", endDate);
+    log("[getWeeklySchedule] weekOffset:", weekOffset, "range:", startDate, "→", endDate);
 
     return erpService.getStudentSchedule(studentId, startDate, endDate);
   },
@@ -1389,6 +1634,59 @@ getNoticeBoard: async (): Promise<Notice[]> => {
     } catch (err) {
       console.error("[getPrograms] error:", err);
       return [];
+    }
+  },
+
+    // ── Guardian Details (single call for login flow) ──────────────────────────
+  getGuardianDetails: async (userId?: string) => {
+    try {
+      // Agar userId nahi diya toh logged-in user le lo
+      let uid = userId;
+      if (!uid) {
+        const me: any = await apiClient.get("frappe.auth.get_logged_user");
+        uid = me?.message;
+        if (!uid || uid === "Guest") {
+          return { ok: false, error: "User not logged in" };
+        }
+      }
+
+      const guardian = await erpService.getGuardianByUser(uid);
+      if (!guardian) {
+        return { ok: false, error: "No guardian found for this user" };
+      }
+
+      // Linked students
+      const students = guardian.students || [];
+      if (students.length === 0) {
+        return { ok: false, error: "No student linked to this guardian" };
+      }
+
+      // Pehla student ka full profile
+      const studentId = students[0].student || students[0].name;
+      const studentProfile = await erpService.getStudentById(studentId);
+
+      // Guardian full details
+      const guardianDetails = await erpService.getGuardiansDetail([
+        guardian.name,
+      ]);
+
+      return {
+        ok: true,
+        data: {
+          guardian: guardianDetails[0] || guardian,
+          student: studentProfile,
+          students, // agar multiple students hain toh
+        },
+      };
+    } catch (error: any) {
+      console.error("[getGuardianDetails] error:", error);
+      return {
+        ok: false,
+        error:
+          error.response?.data?.message ||
+          error.message ||
+          "Failed to fetch guardian details",
+      };
     }
   },
 };

@@ -16,22 +16,23 @@ export interface UserContextType {
   studentId: string | null;
   role: 'student' | 'guardian' | null;
   activeStudentId: string | null;
-  linkedStudents: LinkedStudent[];           // ← NAYA
-  setActiveStudentId: (id: string) => void; // ← NAYA
+  linkedStudents: LinkedStudent[];
+  setActiveStudentId: (id: string) => void;
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
+
 export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser]                       = useState<PortalUser | null>(null);
   const [isLoading, setIsLoading]             = useState(true);
   const [studentId, setStudentId]             = useState<string | null>(null);
   const [role, setRole]                       = useState<'student' | 'guardian' | null>(null);
   const [activeStudentId, setActiveStudentId] = useState<string | null>(null);
-  const [linkedStudents, setLinkedStudents]   = useState<LinkedStudent[]>([]); // ← NAYA
+  const [linkedStudents, setLinkedStudents]   = useState<LinkedStudent[]>([]);
   const erpnextUrl = import.meta.env.VITE_ERP_BASE_URL || '';
 
-  // resolveUser mein guardian ke liye SAARE students lo, sirf [0] nahi
   const resolveUser = async (userId: string) => {
+    // ── 1. Try Student first ──────────────────────────────────────────────
     const studentData = await erpService.getStudentDetails(userId);
     if (studentData) {
       return {
@@ -42,23 +43,57 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     }
 
-    const guardianData = await erpService.getGuardianDetails(userId);
+    // ── 2. Try Guardian ───────────────────────────────────────────────────
+    const guardianResult: any = await erpService.getGuardianDetails(userId);
+
+    // getGuardianDetails returns { ok, data } OR raw guardian object
+    let guardianData: any = null;
+    if (guardianResult?.ok && guardianResult?.data) {
+      guardianData = guardianResult.data;
+    } else if (guardianResult?.students || guardianResult?.guardian_name) {
+      guardianData = guardianResult;
+    }
+
     if (guardianData) {
-      // SAARE linked students array mein lo
-      const allStudents: LinkedStudent[] = (guardianData?.students || []).map((s: any) => ({
-        student: s.student,
-        student_name: s.student_name,
-      }));
+      // Students array nikalne ke liye multiple shapes handle karo
+      let studentsList: any[] = [];
+
+      // Case A: { guardian: {...}, student: {...}, students: [...] }
+      if (Array.isArray(guardianData.students)) {
+        studentsList = guardianData.students;
+      }
+      // Case B: { guardian: { students: [...] } }
+      else if (Array.isArray(guardianData.guardian?.students)) {
+        studentsList = guardianData.guardian.students;
+      }
+      // Case C: { students: { student, student_name } } (single student)
+      else if (guardianData.students && typeof guardianData.students === 'object') {
+        studentsList = [guardianData.students];
+      }
+
+      // Normalize shape: har entry mein { student, student_name } ho
+      const allStudents: LinkedStudent[] = studentsList
+        .map((s: any) => ({
+          student: s.student || s.name || s.student_name,
+          student_name: s.student_name || s.student || s.name,
+        }))
+        .filter((s: LinkedStudent) => !!s.student);
+
       const firstStudentId = allStudents[0]?.student ?? null;
-      
-      console.log('[resolveUser] Guardian students:', allStudents);
+
+      console.log('[resolveUser] Guardian raw:', guardianData);
+      console.log('[resolveUser] Guardian students (normalized):', allStudents);
+
+      // User object: guardian details merge karo
+      const guardianUser = guardianData.guardian || guardianData;
       return {
-        user: { ...guardianData, role: 'guardian' } as PortalUser,
+        user: { ...guardianUser, role: 'guardian' } as PortalUser,
         studentId: firstStudentId,
         role: 'guardian' as const,
         linkedStudents: allStudents,
       };
     }
+
     return null;
   };
 
@@ -73,7 +108,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setStudentId(result.studentId);
     setRole(result.role);
     setActiveStudentId(result.studentId);
-    setLinkedStudents(result.linkedStudents); // ← NAYA
+    setLinkedStudents(result.linkedStudents);
   };
 
   // localStorage mein bhi save/restore karo
@@ -89,12 +124,12 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const savedStudentId = localStorage.getItem('portal_student_id');
           const savedRole      = localStorage.getItem('portal_role') as 'student' | 'guardian' | null;
           const savedActiveId  = localStorage.getItem('portal_active_student_id');
-          const savedLinked    = localStorage.getItem('portal_linked_students'); // ← NAYA
+          const savedLinked    = localStorage.getItem('portal_linked_students');
           if (savedUser)      setUser(JSON.parse(savedUser));
           if (savedStudentId) setStudentId(savedStudentId);
           if (savedRole)      setRole(savedRole);
           if (savedActiveId)  setActiveStudentId(savedActiveId);
-          if (savedLinked)    setLinkedStudents(JSON.parse(savedLinked));        // ← NAYA
+          if (savedLinked)    setLinkedStudents(JSON.parse(savedLinked));
         }
       } catch (error) {
         console.error('Auth check failed:', error);
@@ -120,7 +155,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.setItem('portal_student_id',        result.studentId ?? '');
       localStorage.setItem('portal_role',              result.role);
       localStorage.setItem('portal_active_student_id', result.studentId ?? '');
-      localStorage.setItem('portal_linked_students',   JSON.stringify(result.linkedStudents)); // ← NAYA
+      localStorage.setItem('portal_linked_students',   JSON.stringify(result.linkedStudents));
     } catch (error) {
       await erpService.logout();
       throw error;
@@ -139,11 +174,10 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('portal_student_id');
     localStorage.removeItem('portal_role');
     localStorage.removeItem('portal_active_student_id');
-    localStorage.removeItem('portal_linked_students'); // ← NAYA
+    localStorage.removeItem('portal_linked_students');
     erpService.logout();
   };
 
-  // setActiveStudentId ko expose karo — switcher isko call karega
   const handleSetActiveStudent = (id: string) => {
     setActiveStudentId(id);
     localStorage.setItem('portal_active_student_id', id);
@@ -153,8 +187,8 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     <UserContext.Provider value={{
       user, isLoading, login, logout, erpnextUrl,
       studentId, role, activeStudentId,
-      linkedStudents,                    // ← NAYA
-      setActiveStudentId: handleSetActiveStudent, // ← NAYA
+      linkedStudents,
+      setActiveStudentId: handleSetActiveStudent,
     }}>
       {children}
     </UserContext.Provider>
