@@ -30,7 +30,6 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [linkedStudents, setLinkedStudents]   = useState<LinkedStudent[]>([]); // ← NAYA
   const erpnextUrl = import.meta.env.VITE_ERP_BASE_URL || '';
 
-  // resolveUser mein guardian ke liye SAARE students lo, sirf [0] nahi
   const resolveUser = async (userId: string) => {
     const studentData = await erpService.getStudentDetails(userId);
     if (studentData) {

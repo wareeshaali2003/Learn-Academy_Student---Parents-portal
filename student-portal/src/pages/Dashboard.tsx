@@ -1,7 +1,10 @@
-import React, { useEffect, useState } from 'react';
+// pages/Dashboard.tsx
+import React, { useEffect, useState, useMemo } from 'react';
 import { useUser } from '../context/UserContext';
-import { erpService } from '../services/erpService';
-import { Attendance, Assignment, Result, Quiz } from '../types';
+import { erpService, CourseScheduleEntry, AssignmentSubmission } from '../services/erpService';
+import { Attendance, Result, Quiz } from '../types';
+import { useStudentSchedule, ScheduleEntry } from './Schedulepage';
+import { useAssignments, AcademicAssignment } from '../Hooks/Useassignment';
 import {
   CalendarCheck,
   FileText,
@@ -20,24 +23,35 @@ import {
   Radio,
   ScrollText,
   Inbox,
+  CalendarDays,
+  MapPin,
+  Video,
+  ChevronLeft,
+  ChevronRight,
+  BookOpen,
+  Zap,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useNoticeBoard } from '../Hooks/Usenoticeboard';
 
+// ── Helper functions ─────────────────────────────────────────────────────────
 function pct(num: number, den: number) {
   if (!den) return 0;
   return Math.round((num / den) * 100);
 }
+
 function gradeColor(p: number) {
   if (p >= 80) return 'text-emerald-700 bg-emerald-50';
   if (p >= 60) return 'text-amber-700 bg-amber-50';
   return 'text-red-700 bg-red-50';
 }
+
 function barColor(p: number) {
   if (p >= 80) return 'bg-emerald-500';
   if (p >= 60) return 'bg-amber-500';
   return 'bg-red-500';
 }
+
 function gradeLabel(p: number) {
   if (p >= 90) return 'A+';
   if (p >= 80) return 'A';
@@ -46,6 +60,7 @@ function gradeLabel(p: number) {
   if (p >= 50) return 'D';
   return 'F';
 }
+
 function formatCourseLabel(code: string): string {
   if (!code) return code;
   const withSection = code.match(/^[A-Z]+-([^-]+)-([A-Z])-([A-Za-z]+)\d+$/);
@@ -54,24 +69,236 @@ function formatCourseLabel(code: string): string {
   if (withoutSection) return `${withoutSection[1]} · ${withoutSection[2]}`;
   return code;
 }
-function formatGroup(group: string): string {
-  return group?.replace(/^LB-/, '') ?? group;
+
+function stripSchoolPrefix(raw: string): string {
+  return raw.replace(/^[A-Z]{1,5}-/, '');
 }
 
-const NOTICE_TYPE_CONFIG = {
-  NEWS:     { label: 'News',     icon: <Newspaper className="w-3 h-3" />,  color: 'text-blue-700 bg-blue-50',    dot: 'bg-blue-500'   },
-  STREAM:   { label: 'Stream',   icon: <Radio className="w-3 h-3" />,      color: 'text-purple-700 bg-purple-50', dot: 'bg-purple-500' },
-  CIRCULAR: { label: 'Circular', icon: <ScrollText className="w-3 h-3" />, color: 'text-amber-700 bg-amber-50',  dot: 'bg-amber-500'  },
-} as const;
+function fmtDateLocal(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
-const Section: React.FC<{ title: string; icon: React.ReactNode; count?: number; children: React.ReactNode }> = ({ title, icon, count, children }) => (
+function isSameDay(a: Date, b: Date): boolean {
+  return fmtDateLocal(a) === fmtDateLocal(b);
+}
+
+function toKey(date: Date): string {
+  return fmtDateLocal(date);
+}
+
+function parseTime(t: string): string {
+  const [hStr, mStr] = t.split(':');
+  let h = parseInt(hStr, 10);
+  const m = mStr;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  if (h > 12) h -= 12;
+  if (h === 0) h = 12;
+  return `${String(h).padStart(2, '0')}:${m} ${ampm}`;
+}
+
+function formatCourseName(raw: string): string {
+  const parts = raw.split('-').filter(Boolean);
+  if (parts.length >= 3) return `${parts[1]} · ${parts.slice(2).join(' ')}`;
+  return raw;
+}
+
+function parseAssignmentCourse(code: string): { cls: string; subject: string } | null {
+  if (!code) return null;
+  const match = code.match(/^[A-Z]+-([^-]+)-([A-Za-z0-9]+)$/);
+  if (!match) return null;
+  return { cls: match[1], subject: match[2] };
+}
+
+function formatGroupName(raw: string): string {
+  if (/^SECTION\s/i.test(raw)) return raw.replace(/^SECTION\s/i, 'Section ');
+  const last = raw.split('-').pop() || raw;
+  return `Group ${last}`;
+}
+
+// ── Course colour palette ────────────────────────────────────────────────────
+const PALETTE = [
+  { bg: 'bg-blue-50',    border: 'border-blue-200',    text: 'text-blue-800',    accent: 'bg-blue-500',    dot: 'bg-blue-400' },
+  { bg: 'bg-violet-50',  border: 'border-violet-200',  text: 'text-violet-800',  accent: 'bg-violet-500',  dot: 'bg-violet-400' },
+  { bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-800', accent: 'bg-emerald-500', dot: 'bg-emerald-400' },
+  { bg: 'bg-amber-50',   border: 'border-amber-200',   text: 'text-amber-800',   accent: 'bg-amber-500',   dot: 'bg-amber-400' },
+  { bg: 'bg-rose-50',    border: 'border-rose-200',    text: 'text-rose-800',    accent: 'bg-rose-500',    dot: 'bg-rose-400' },
+  { bg: 'bg-cyan-50',    border: 'border-cyan-200',    text: 'text-cyan-800',    accent: 'bg-cyan-500',    dot: 'bg-cyan-400' },
+];
+
+const _courseColorCache: Record<string, number> = {};
+let _colorCounter = 0;
+
+function getCourseColor(course: string) {
+  if (_courseColorCache[course] === undefined) {
+    _courseColorCache[course] = _colorCounter % PALETTE.length;
+    _colorCounter++;
+  }
+  return PALETTE[_courseColorCache[course]];
+}
+
+// ── Class Card Component (SAME as SchedulePage) ────────────────────────────
+const ClassCard: React.FC<{ entry: ScheduleEntry; index: number; isGuardian: boolean }> = ({ entry, index, isGuardian }) => {
+  const c = getCourseColor(entry.course);
+  const courseName = formatCourseName(entry.course);
+  const groupName = formatGroupName(entry.student_group_name);
+  const fromTime = parseTime(entry.from_time);
+  const toTime = parseTime(entry.to_time);
+  const hasLink = !!(entry.meeting_link || entry.custom_meeting_link);
+
+  // Check if class is active (for Join button)
+  const isActive = (() => {
+    const today = new Date();
+    const entryDate = entry.schedule_date.slice(0, 10);
+    const todayKey = fmtDateLocal(today);
+    if (entryDate !== todayKey) return false;
+    const now = today.getHours() * 60 + today.getMinutes();
+    const [fromH, fromM] = entry.from_time.split(':').map(Number);
+    const [toH, toM] = entry.to_time.split(':').map(Number);
+    const start = fromH * 60 + fromM - 10;
+    const end = toH * 60 + toM;
+    return now >= start && now <= end;
+  })();
+
+  // Regular class card rendering
+  return (
+    <div
+      className={`relative flex gap-3 rounded-2xl border ${c.bg} ${c.border} px-4 py-3.5 overflow-hidden group`}
+    >
+      <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-2xl ${c.accent}`} />
+      <div className="flex flex-col items-center justify-center shrink-0 w-14 text-center">
+        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{fromTime.split(' ')[1]}</span>
+        <span className={`text-base font-extrabold ${c.text}`}>{fromTime.split(' ')[0]}</span>
+        <div className="w-4 border-t border-gray-300 my-1" />
+        <span className="text-[10px] font-semibold text-gray-400">{toTime.split(' ')[0]}</span>
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className={`text-sm font-extrabold ${c.text} leading-tight truncate`}>{courseName}</p>
+        <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
+          <span className="flex items-center gap-1 text-[10px] text-gray-500 font-medium">
+            <Users className="w-3 h-3" /> {groupName}
+          </span>
+          <span className="flex items-center gap-1 text-[10px] text-gray-500 font-medium">
+            <GraduationCap className="w-3 h-3" />
+            {entry.title?.split(' by ')[1] ?? '—'}
+          </span>
+          {entry.room && (
+            <span className="flex items-center gap-1 text-[10px] text-gray-500 font-medium">
+              <MapPin className="w-3 h-3" />
+              <span className="truncate max-w-[90px]" title={entry.room}>{entry.room}</span>
+            </span>
+          )}
+        </div>
+
+        {/* Join Class button */}
+        {hasLink && !isGuardian && (
+          isActive ? (
+            <a
+              href={(entry.meeting_link || entry.custom_meeting_link)!}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={e => e.stopPropagation()}
+              className="mt-2.5 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl
+                         bg-green-500 hover:bg-green-600 active:scale-95
+                         text-white text-[11px] font-bold shadow-sm shadow-green-200
+                         transition-all duration-150 select-none"
+            >
+              <Video className="w-3.5 h-3.5" /> Join Class
+            </a>
+          ) : (
+            <span
+              className="mt-2.5 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl
+                         bg-gray-100 text-gray-400 text-[11px] font-bold
+                         cursor-not-allowed select-none"
+            >
+              <Video className="w-3.5 h-3.5" /> Join Class
+            </span>
+          )
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ── Assignment Card Component (matches ClassCard style) ────────────────────
+const ASSIGN_PALETTE = [
+  { bg: 'bg-blue-50',    border: 'border-blue-200',    text: 'text-blue-800',    accent: 'bg-blue-500' },
+  { bg: 'bg-violet-50',  border: 'border-violet-200',  text: 'text-violet-800',  accent: 'bg-violet-500' },
+  { bg: 'bg-amber-50',   border: 'border-amber-200',   text: 'text-amber-800',   accent: 'bg-amber-500' },
+  { bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-800', accent: 'bg-emerald-500' },
+  { bg: 'bg-rose-50',    border: 'border-rose-200',    text: 'text-rose-800',    accent: 'bg-rose-500' },
+];
+
+const _assignColorCache: Record<string, number> = {};
+let _assignColorCounter = 0;
+
+function getAssignmentColor(key: string) {
+  if (_assignColorCache[key] === undefined) {
+    _assignColorCache[key] = _assignColorCounter % ASSIGN_PALETTE.length;
+    _assignColorCounter++;
+  }
+  return ASSIGN_PALETTE[_assignColorCache[key]];
+}
+
+const AssignmentCard: React.FC<{ assignment: AcademicAssignment; isSubmitted: boolean }> = ({ assignment: a, isSubmitted }) => {
+  const c = getAssignmentColor(a.name);
+  const parsed = parseAssignmentCourse(a.course);
+  const dateObj = new Date(a.creation);
+
+  return (
+    <div className={`relative flex gap-3 rounded-2xl border ${c.bg} ${c.border} px-4 py-3.5 overflow-hidden`}>
+      <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-2xl ${isSubmitted ? 'bg-emerald-500' : c.accent}`} />
+
+      <div className="flex flex-col items-center justify-center shrink-0 w-14 text-center">
+        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{format(dateObj, 'MMM')}</span>
+        <span className={`text-lg font-extrabold ${c.text}`}>{format(dateObj, 'd')}</span>
+        <span className="text-[9px] font-semibold text-gray-400">{format(dateObj, 'yyyy')}</span>
+      </div>
+
+      <div className="flex-1 min-w-0">
+        <p className={`text-sm font-extrabold ${c.text} leading-tight truncate`}>{a.heading || 'Untitled Assignment'}</p>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
+          {a.course && (
+            <span className="flex items-center gap-1 text-[10px] text-gray-500 font-medium">
+              <BookOpen className="w-3 h-3" />
+              {parsed ? parsed.subject : a.course}
+            </span>
+          )}
+          {parsed?.cls && (
+            <span className="flex items-center gap-1 text-[10px] text-gray-500 font-medium">
+              <Users className="w-3 h-3" />
+              {parsed.cls}
+            </span>
+          )}
+        </div>
+
+        <span
+          className={`mt-2.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-bold
+            ${isSubmitted ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}
+        >
+          {isSubmitted
+            ? <><CheckCircle2 className="w-3.5 h-3.5" /> Submitted</>
+            : <><Clock className="w-3.5 h-3.5" /> Pending</>
+          }
+        </span>
+      </div>
+    </div>
+  );
+};
+
+// ── Components ───────────────────────────────────────────────────────────────
+
+const Section: React.FC<{ title: string; icon: React.ReactNode; count?: number; headerExtra?: React.ReactNode; children: React.ReactNode }> = ({ title, icon, count, headerExtra, children }) => (
   <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-    <div className="p-5 border-b border-gray-50 flex items-center gap-2">
+    <div className="p-5 border-b border-gray-50 flex items-center gap-2 flex-wrap">
       <div className="p-2 rounded-xl bg-gray-50 text-gray-500">{icon}</div>
       <h2 className="font-bold text-base text-gray-900">{title}</h2>
       {count !== undefined && (
         <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-medium">{count}</span>
       )}
+      {headerExtra && <div className="ml-auto flex items-center gap-2">{headerExtra}</div>}
     </div>
     {children}
   </div>
@@ -84,6 +311,14 @@ const EmptyState: React.FC<{ icon: React.ReactNode; label: string }> = ({ icon, 
   </div>
 );
 
+const NOTICE_TYPE_CONFIG = {
+  NEWS:     { label: 'News',     icon: <Newspaper className="w-3 h-3" />,  color: 'text-blue-700 bg-blue-50',    dot: 'bg-blue-500' },
+  STREAM:   { label: 'Stream',   icon: <Radio className="w-3 h-3" />,      color: 'text-purple-700 bg-purple-50', dot: 'bg-purple-500' },
+  CIRCULAR: { label: 'Circular', icon: <ScrollText className="w-3 h-3" />, color: 'text-amber-700 bg-amber-50',  dot: 'bg-amber-500' },
+} as const;
+
+// ── Main Dashboard ───────────────────────────────────────────────────────────
+
 export const Dashboard: React.FC = () => {
   const { user, role, activeStudentId } = useUser();
 
@@ -93,8 +328,14 @@ export const Dashboard: React.FC = () => {
     ? (activeStudentId ?? undefined)
     : (activeStudentId ?? user?.name ?? undefined);
 
+  // Use the SAME hook as Schedule page
+  const { byDate, courses, loading: scheduleLoading, error: scheduleError, refetch } = useStudentSchedule(studentId);
+
+  // Use the SAME hook as AssignmentsPage
+  const { assignments, isLoading: assignmentsLoading } = useAssignments();
+  const [submissionsMap, setSubmissionsMap] = useState<Record<string, AssignmentSubmission>>({});
+
   const [attendance, setAttendance]   = useState<Attendance[]>([]);
-  const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [results, setResults]         = useState<Result[]>([]);
   const [quizzes, setQuizzes]         = useState<Quiz[]>([]);
   const [isLoading, setIsLoading]     = useState(true);
@@ -104,6 +345,68 @@ export const Dashboard: React.FC = () => {
   const { notices, isLoading: noticesLoading } = useNoticeBoard();
   const latestNotices = notices.slice(0, 4);
 
+  // Calendar state
+  const [pickedDate, setPickedDate] = useState<Date>(new Date());
+  const [calYear, setCalYear] = useState(() => new Date().getFullYear());
+  const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
+  const isTodayPicked = isSameDay(pickedDate, new Date());
+
+  // Month total classes
+  const totalForMonth = useMemo(() => {
+    return Object.entries(byDate)
+      .filter(([k]) => {
+        const d = new Date(k);
+        return d.getFullYear() === calYear && d.getMonth() === calMonth;
+      })
+      .reduce((s, [, v]) => s + v.length, 0);
+  }, [byDate, calYear, calMonth]);
+
+  // Selected day schedule
+  const selectedKey = toKey(pickedDate);
+  const selectedDaySchedule = useMemo(() => {
+    const list = byDate[selectedKey] || [];
+    return [...list].sort((a, b) => a.from_time.localeCompare(b.from_time));
+  }, [byDate, selectedKey]);
+
+  // Calendar grid
+  const calendarCells = useMemo(() => {
+    const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+    const startWeekday = new Date(calYear, calMonth, 1).getDay();
+    const cells: (Date | null)[] = [];
+    for (let i = 0; i < startWeekday; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) {
+      cells.push(new Date(calYear, calMonth, d));
+    }
+    return cells;
+  }, [calYear, calMonth]);
+
+  // Has classes on date
+  const classDaySet = useMemo(
+    () => new Set(Object.keys(byDate)),
+    [byDate]
+  );
+
+  // Navigation
+  const goPrevMonth = () => {
+    const d = new Date(calYear, calMonth - 1, 1);
+    setCalYear(d.getFullYear());
+    setCalMonth(d.getMonth());
+  };
+
+  const goNextMonth = () => {
+    const d = new Date(calYear, calMonth + 1, 1);
+    setCalYear(d.getFullYear());
+    setCalMonth(d.getMonth());
+  };
+
+  const goToday = () => {
+    const today = new Date();
+    setCalYear(today.getFullYear());
+    setCalMonth(today.getMonth());
+    setPickedDate(today);
+  };
+
+  // Fetch other data
   useEffect(() => {
     if (!studentId) {
       setIsLoading(false);
@@ -119,14 +422,12 @@ export const Dashboard: React.FC = () => {
           }).catch(() => {});
         }
 
-        const [attData, assData, resData, quizData] = await Promise.all([
+        const [attData, resData, quizData] = await Promise.all([
           erpService.getAttendance(studentId),
-          erpService.getAssignments(studentId),
           erpService.getResults(studentId),
           erpService.getQuizzes(studentId),
         ]);
         setAttendance(attData || []);
-        setAssignments(assData || []);
         setResults(resData || []);
         setQuizzes(quizData || []);
       } catch (error) {
@@ -139,27 +440,31 @@ export const Dashboard: React.FC = () => {
     fetchData();
   }, [studentId, isGuardian]);
 
-  // Guardian ne koi child select nahi kiya
-  if (isGuardian && !activeStudentId) {
-    return (
-      <div className="flex flex-col items-center justify-center py-32 gap-3 text-center px-6">
-        <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center mb-2">
-          <Users className="w-7 h-7 text-blue-400" />
-        </div>
-        <p className="text-base font-bold text-gray-700">Koi bachha select nahi hua</p>
-        <p className="text-sm text-gray-400 max-w-xs">
-          Upar menu se apna bachha select karein taake dashboard dekh sakein.
-        </p>
-      </div>
-    );
-  }
+  // Submissions map
+  useEffect(() => {
+    if (!studentId) return;
+    let cancelled = false;
+    erpService.getSubmissionsForStudent(studentId).then((list) => {
+      if (cancelled) return;
+      const map: Record<string, AssignmentSubmission> = {};
+      list.forEach((s) => { map[s.assignment] = s; });
+      setSubmissionsMap(map);
+    });
+    return () => { cancelled = true; };
+  }, [studentId]);
 
+  const isAssignmentSubmitted = (name: string) => {
+    const sub = submissionsMap[name];
+    return sub?.status === 'Submitted' || sub?.status === 'Graded';
+  };
+
+  // Stats calculations
   const presentCount    = attendance.filter(a => a.status === 'Present').length;
   const absentCount     = attendance.filter(a => a.status === 'Absent').length;
   const leaveCount      = attendance.filter(a => a.status === 'On Leave').length;
   const attPct          = pct(presentCount, attendance.length);
-  const pendingAssign   = assignments.filter(a => a.status === 'Pending');
-  const submittedAssign = assignments.filter(a => a.status !== 'Pending');
+  const submittedAssign = assignments.filter(a => isAssignmentSubmitted(a.name));
+  const pendingAssign   = assignments.filter(a => !isAssignmentSubmitted(a.name));
   const bestResultPct   = results.length > 0
     ? Math.max(...results.map(r => { const max = r.maximum_score || r.total_weightage || 0; return max > 0 ? pct(r.total_score, max) : 0; }))
     : 0;
@@ -196,14 +501,30 @@ export const Dashboard: React.FC = () => {
     },
   ];
 
-  if (isLoading) {
+  // Guardian no child selected
+  if (isGuardian && !activeStudentId) {
+    return (
+      <div className="flex flex-col items-center justify-center py-32 gap-3 text-center px-6">
+        <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center mb-2">
+          <Users className="w-7 h-7 text-blue-400" />
+        </div>
+        <p className="text-base font-bold text-gray-700">No Child Selected</p>
+        <p className="text-sm text-gray-400 max-w-xs">
+          Please select a child from the menu above to view the dashboard.
+        </p>
+      </div>
+    );
+  }
+
+  // Loading
+  if (isLoading || assignmentsLoading) {
     return (
       <div className="space-y-8 animate-pulse">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-          {[1,2,3,4].map(i => <div key={i} className="h-36 bg-white rounded-3xl border border-gray-100" />)}
+          {[1, 2, 3, 4].map(i => <div key={i} className="h-36 bg-white rounded-3xl border border-gray-100" />)}
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {[1,2,3,4].map(i => <div key={i} className="h-64 bg-white rounded-3xl border border-gray-100" />)}
+          {[1, 2, 3, 4].map(i => <div key={i} className="h-64 bg-white rounded-3xl border border-gray-100" />)}
           <div className="col-span-1 lg:col-span-2 h-40 bg-white rounded-3xl border border-gray-100" />
         </div>
       </div>
@@ -223,7 +544,7 @@ export const Dashboard: React.FC = () => {
         </div>
       )}
 
-      {/* ── 4 Stats Cards ── */}
+      {/* 4 Stats Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
         {stats.map((stat, i) => (
           <div key={i} className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow group">
@@ -241,36 +562,152 @@ export const Dashboard: React.FC = () => {
         ))}
       </div>
 
-      {/* ── Main Grid ── */}
+      {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        {/* Class Schedule */}
+        <div className="col-span-1 lg:col-span-2">
+          <Section
+            title="Class Schedule"
+            icon={<CalendarDays className="w-4 h-4" />}
+            count={selectedDaySchedule.length}
+            headerExtra={
+              !isTodayPicked && (
+                <button
+                  onClick={goToday}
+                  className="text-xs font-semibold text-primary-green bg-green-50 border border-green-100 px-2.5 py-1 rounded-lg hover:bg-green-100 transition-colors"
+                >
+                  Today
+                </button>
+              )
+            }
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-50">
+
+              {/* Left: Mini month calendar */}
+              <div className="p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <button
+                    onClick={goPrevMonth}
+                    className="p-1.5 rounded-lg border border-gray-200 text-gray-400 hover:text-gray-700 hover:border-gray-300 transition-colors"
+                    title="Previous month"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="flex items-center gap-1.5 text-sm font-bold text-gray-800">
+                    <CalendarDays className="w-3.5 h-3.5 text-primary-green" />
+                    {format(new Date(calYear, calMonth, 1), 'MMMM yyyy')}
+                  </span>
+                  <button
+                    onClick={goNextMonth}
+                    className="p-1.5 rounded-lg border border-gray-200 text-gray-400 hover:text-gray-700 hover:border-gray-300 transition-colors"
+                    title="Next month"
+                  >
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-7 gap-1 mb-1">
+                  {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+                    <div key={i} className="text-center text-[10px] font-bold text-gray-400">{d}</div>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-7 gap-1">
+                  {calendarCells.map((cell, idx) => {
+                    if (!cell) return <div key={idx} />;
+                    const dateStr     = fmtDateLocal(cell);
+                    const hasClass    = classDaySet.has(dateStr);
+                    const isSelected  = isSameDay(cell, pickedDate);
+                    const isTodayCell = isSameDay(cell, new Date());
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => setPickedDate(cell)}
+                        className={`relative flex flex-col items-center justify-center h-8 rounded-lg text-[11px] font-semibold transition-colors
+                          ${isSelected
+                            ? 'bg-primary-green text-white shadow-sm'
+                            : isTodayCell
+                              ? 'bg-green-50 text-primary-green ring-1 ring-green-200'
+                              : 'text-gray-600 hover:bg-gray-50'
+                          }`}
+                      >
+                        {cell.getDate()}
+                        {hasClass && (
+                          <span
+                            className={`absolute bottom-0.5 w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-primary-green'}`}
+                          />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-50">
+                  <span className="text-[11px] text-gray-400 font-medium">This month</span>
+                  <span className="text-[11px] text-primary-green font-bold">
+                    {scheduleLoading ? '…' : `${totalForMonth} class${totalForMonth !== 1 ? 'es' : ''}`}
+                  </span>
+                </div>
+              </div>
+
+              {/* Right: Selected day's classes */}
+              <div className="flex flex-col min-h-0">
+                <div className="px-5 pb-2 pt-5">
+                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">
+                    {format(pickedDate, 'EEEE, d MMM yyyy')}
+                  </p>
+                </div>
+
+                {scheduleLoading ? (
+                  <div className="p-4 space-y-3">
+                    {[1, 2].map((i) => (
+                      <div key={i} className="animate-pulse h-16 bg-gray-50 rounded-xl" />
+                    ))}
+                  </div>
+                ) : scheduleError ? (
+                  <div className="p-4 text-center text-red-500 text-sm">
+                    <AlertCircle className="w-5 h-5 mx-auto mb-2" />
+                   <p>Failed to load schedule</p>
+                    <button onClick={refetch} className="text-xs text-primary-green underline mt-1">Retry</button>
+                  </div>
+                ) : selectedDaySchedule.length === 0 ? (
+                  <EmptyState
+                    icon={<CalendarDays className="w-full h-full" />}
+                    label={isTodayPicked ? 'No class scheduled for today' : 'No class scheduled for this date'}
+                  />
+                ) : (
+                  <div className="divide-y divide-gray-50 max-h-96 overflow-y-auto p-4 space-y-3">
+                    {selectedDaySchedule.map((entry: ScheduleEntry, index: number) => (
+                      <ClassCard
+                        key={`${entry.course}-${entry.from_time}`}
+                        entry={entry}
+                        index={index}
+                        isGuardian={isGuardian}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+            </div>
+          </Section>
+        </div>
 
         {/* Assignments */}
         <Section title="Assignments" icon={<FileText className="w-4 h-4" />} count={assignments.length}>
           {assignments.length === 0 ? (
             <EmptyState icon={<FileText className="w-full h-full" />} label="No assignments found" />
           ) : (
-            <div className="divide-y divide-gray-50">
-              {assignments.map((a) => {
-                const isPending = a.status === 'Pending';
-                const due = new Date(a.due_date);
-                const overdue = isPending && due < new Date();
-                return (
-                  <div key={a.name} className="p-4 flex items-center gap-4 hover:bg-gray-50 transition-colors">
-                    <div className={`p-2 rounded-xl flex-shrink-0 ${isPending ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>
-                      {isPending ? <Clock className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-gray-900 text-sm truncate">{a.assignment_name}</p>
-                      <p className={`text-xs mt-0.5 ${overdue ? 'text-red-500 font-medium' : 'text-gray-400'}`}>
-                        {overdue ? '⚠ Overdue · ' : 'Due: '}{format(due, 'MMM dd, yyyy')}
-                      </p>
-                    </div>
-                    <span className={`flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-bold ${isPending ? overdue ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                      {a.status}
-                    </span>
-                  </div>
-                );
-              })}
+            <div className="p-4 space-y-3">
+              {assignments.slice(0, 6).map((a) => (
+                <AssignmentCard key={a.name} assignment={a} isSubmitted={isAssignmentSubmitted(a.name)} />
+              ))}
+              {assignments.length > 6 && (
+                <div className="pt-1 text-center text-xs text-gray-400">
+                  +{assignments.length - 6} more assignments
+                </div>
+              )}
             </div>
           )}
         </Section>
@@ -299,13 +736,13 @@ export const Dashboard: React.FC = () => {
                 )}
               </div>
               <div className="divide-y divide-gray-50 max-h-72 overflow-y-auto">
-                {[...attendance].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((rec) => {
+                {[...attendance].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 8).map((rec) => {
                   const date = new Date(rec.date);
                   const isPresent = rec.status === 'Present';
                   const isLeave   = rec.status === 'On Leave';
                   return (
                     <div key={rec.name} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors">
-                      <div className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center flex-shrink-0 border ${isPresent ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : isLeave ? 'bg-amber-50 border-amber-100 text-amber-600' : 'bg-red-50 border-red-100 text-red-600'}`}>
+                      <div className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center shrink-0 border ${isPresent ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : isLeave ? 'bg-amber-50 border-amber-100 text-amber-600' : 'bg-red-50 border-red-100 text-red-600'}`}>
                         <span className="text-sm font-extrabold leading-none">{format(date, 'd')}</span>
                         <span className="text-[9px] font-semibold uppercase tracking-wide opacity-70">{format(date, 'MMM')}</span>
                       </div>
@@ -313,20 +750,25 @@ export const Dashboard: React.FC = () => {
                         <p className="text-sm font-semibold text-gray-800">{format(date, 'EEE, d MMM yyyy')}</p>
                         {rec.course_schedule && (
                           <p className="text-xs text-gray-400 mt-0.5 truncate">
-                            {formatCourseLabel(rec.course_schedule)}{rec.student_group ? ` · ${formatGroup(rec.student_group)}` : ''}
+                            {formatCourseLabel(rec.course_schedule)}{rec.student_group ? ` · ${stripSchoolPrefix(rec.student_group)}` : ''}
                           </p>
                         )}
                       </div>
                       {isPresent ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full flex-shrink-0"><CheckCircle2 className="w-3 h-3" /> Present</span>
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full shrink-0"><CheckCircle2 className="w-3 h-3" /> Present</span>
                       ) : isLeave ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold bg-amber-50 text-amber-600 px-2.5 py-1 rounded-full flex-shrink-0"><MinusCircle className="w-3 h-3" /> Leave</span>
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold bg-amber-50 text-amber-600 px-2.5 py-1 rounded-full shrink-0"><MinusCircle className="w-3 h-3" /> Leave</span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-xs font-semibold bg-red-50 text-red-600 px-2.5 py-1 rounded-full flex-shrink-0"><XCircle className="w-3 h-3" /> Absent</span>
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold bg-red-50 text-red-600 px-2.5 py-1 rounded-full shrink-0"><XCircle className="w-3 h-3" /> Absent</span>
                       )}
                     </div>
                   );
                 })}
+                {attendance.length > 8 && (
+                  <div className="px-4 py-2 text-center text-xs text-gray-400">
+                    +{attendance.length - 8} more records
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -349,20 +791,20 @@ export const Dashboard: React.FC = () => {
                 <p className="text-xs text-gray-400 mt-1">Avg: {avgResult}% across {results.length} assessment{results.length !== 1 ? 's' : ''}</p>
               </div>
               <div className="divide-y divide-gray-50">
-                {results.map((r) => {
+                {results.slice(0, 5).map((r) => {
                   const max   = r.maximum_score || r.total_weightage || 0;
                   const score = max > 0 ? pct(r.total_score, max) : 0;
                   return (
                     <div key={r.name} className="p-4 hover:bg-gray-50 transition-colors">
                       <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-xl bg-green-50 text-primary-green flex-shrink-0"><Target className="w-4 h-4" /></div>
+                        <div className="p-2 rounded-xl bg-green-50 text-primary-green shrink-0"><Target className="w-4 h-4" /></div>
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-gray-900 text-sm truncate">{formatCourseLabel(r.assessment_plan)}</p>
                           <p className="text-xs text-gray-400 mt-0.5">Score: {r.total_score} / {max}</p>
                         </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
+                        <div className="flex items-center gap-2 shrink-0">
                           <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${gradeColor(score)}`}>{gradeLabel(score)}</span>
-                          <span className="text-sm font-bold text-gray-900 min-w-[36px] text-right">{score}%</span>
+                          <span className="text-sm font-bold text-gray-900 min-w-9 text-right">{score}%</span>
                         </div>
                       </div>
                       <div className="mt-2.5 h-1.5 bg-gray-100 rounded-full overflow-hidden">
@@ -371,6 +813,11 @@ export const Dashboard: React.FC = () => {
                     </div>
                   );
                 })}
+                {results.length > 5 && (
+                  <div className="px-4 py-2 text-center text-xs text-gray-400">
+                    +{results.length - 5} more results
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -382,12 +829,12 @@ export const Dashboard: React.FC = () => {
             <EmptyState icon={<BrainCircuit className="w-full h-full" />} label="No quizzes found" />
           ) : (
             <div className="divide-y divide-gray-50">
-              {quizzes.map((q) => {
+              {quizzes.slice(0, 6).map((q) => {
                 const isCompleted = q.status === 'Completed';
                 const score = q.score !== undefined && q.total_marks ? pct(q.score, q.total_marks) : null;
                 return (
                   <div key={q.name} className="p-4 flex items-center gap-4 hover:bg-gray-50 transition-colors">
-                    <div className={`p-2 rounded-xl flex-shrink-0 ${isCompleted ? 'bg-purple-50 text-purple-600' : 'bg-gray-50 text-gray-400'}`}>
+                    <div className={`p-2 rounded-xl shrink-0 ${isCompleted ? 'bg-purple-50 text-purple-600' : 'bg-gray-50 text-gray-400'}`}>
                       {isCompleted ? <CheckCircle2 className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -397,7 +844,7 @@ export const Dashboard: React.FC = () => {
                         {isCompleted && score !== null ? `Score: ${q.score} / ${q.total_marks} (${score}%)` : 'Not attempted'}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className="flex items-center gap-2 shrink-0">
                       {isCompleted && score !== null && (
                         <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${gradeColor(score)}`}>{score}%</span>
                       )}
@@ -408,11 +855,16 @@ export const Dashboard: React.FC = () => {
                   </div>
                 );
               })}
+              {quizzes.length > 6 && (
+                <div className="px-4 py-2 text-center text-xs text-gray-400">
+                  +{quizzes.length - 6} more quizzes
+                </div>
+              )}
             </div>
           )}
         </Section>
 
-        {/* ── Notice Board — full width, Quizzes ke baad ── */}
+        {/* Notice Board */}
         <div className="col-span-1 lg:col-span-2">
           <Section title="Notice Board" icon={<Bell className="w-4 h-4" />} count={notices.length}>
             {noticesLoading ? (
@@ -430,7 +882,7 @@ export const Dashboard: React.FC = () => {
                   return (
                     <div key={notice.name} className="p-4 hover:bg-gray-50 transition-colors">
                       <div className="flex items-start gap-3">
-                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-xs font-bold flex-shrink-0 mt-0.5 ${cfg.color}`}>
+                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-xs font-bold shrink-0 mt-0.5 ${cfg.color}`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
                           {cfg.label}
                         </span>
@@ -438,7 +890,7 @@ export const Dashboard: React.FC = () => {
                           <p className="font-semibold text-gray-900 text-sm">{notice.subject}</p>
                           <p className="text-xs text-gray-400 mt-0.5 line-clamp-2">{notice.message}</p>
                         </div>
-                        <span className="text-xs text-gray-300 flex-shrink-0 whitespace-nowrap">
+                        <span className="text-xs text-gray-300 shrink-0 whitespace-nowrap">
                           {format(new Date(notice.creation), 'dd MMM')}
                         </span>
                       </div>
@@ -461,3 +913,5 @@ export const Dashboard: React.FC = () => {
     </div>
   );
 };
+
+export default Dashboard;

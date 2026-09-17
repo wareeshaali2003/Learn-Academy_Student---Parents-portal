@@ -1,5 +1,5 @@
 // pages/SchedulePage.tsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Calendar, Clock, BookOpen, Users, MapPin,
@@ -7,7 +7,8 @@ import {
   AlertCircle, GraduationCap, Zap,
 } from 'lucide-react';
 import { useUser } from '../context/UserContext';
-import { apiClient } from '../services/erpService';
+import { apiClient, erpService } from '../services/erpService';
+import { convertTimeForStudent, getTimezoneLabel } from '../lib/timezone';
 
 export interface ScheduleEntry {
   student_group_name: string;
@@ -89,58 +90,139 @@ function isToday(date: Date): boolean {
     date.getDate()  === t.getDate();
 }
 
-// ── isClassActive ─────────────────────────────────────────────────────────────
-// Returns true if current time falls within the class window (on today's date).
-// Also enables the button 10 minutes before class starts.
-
+// timezone-aware class active check
 function isClassActive(entry: ScheduleEntry): boolean {
   const today    = new Date();
   const entryDate = entry.schedule_date.slice(0, 10);
   const todayKey  = toKey(today);
   if (entryDate !== todayKey) return false;
 
+  const localFromTime = convertTimeForStudent(entry.from_time, entry.student);
+  const localToTime   = convertTimeForStudent(entry.to_time, entry.student);
+
   const now = today.getHours() * 60 + today.getMinutes();
-  const [fromH, fromM] = entry.from_time.split(':').map(Number);
-  const [toH,   toM  ] = entry.to_time.split(':').map(Number);
-  const start = fromH * 60 + fromM - 10; // 10 min early enable
+  const [fromH, fromM] = localFromTime.split(':').map(Number);
+  const [toH,   toM  ] = localToTime.split(':').map(Number);
+  const start = fromH * 60 + fromM - 10;
   const end   = toH   * 60 + toM;
 
   return now >= start && now <= end;
 }
 
+async function fetchStudentAcademicYear(studentId: string): Promise<string | null> {
+  try {
+    const res: any = await apiClient.get('frappe.client.get_list', {
+      params: {
+        doctype: 'Program Enrollment',
+        filters: JSON.stringify([
+          ['student', '=', studentId],
+          ['docstatus', '=', 1],
+        ]),
+        fields: JSON.stringify(['academic_year', 'enrollment_date']),
+        order_by: 'enrollment_date desc',
+        limit_page_length: 1,
+      },
+    });
+    const rows: any[] = res?.message ?? res?.data?.message ?? [];
+    return rows?.[0]?.academic_year ?? null;
+  } catch (err) {
+    console.error('[fetchStudentAcademicYear] error:', err);
+    return null;
+  }
+}
+
+async function fetchEnrolledCourseSet(studentId: string): Promise<Set<string>> {
+  const courseSet = new Set<string>();
+  try {
+    const programEnrollments = await erpService.getEnrolledCourses(studentId);
+    programEnrollments.forEach((pe) => {
+      (pe.courses || []).forEach((c) => {
+        if (c.course) courseSet.add(c.course);
+      });
+    });
+    console.log('[fetchEnrolledCourseSet] studentId:', studentId, '| enrolled courses:', [...courseSet]);
+  } catch (err) {
+    console.error('[fetchEnrolledCourseSet] error:', err);
+  }
+  return courseSet;
+}
+
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
-export function useStudentSchedule(studentId: string | null | undefined, academicYear = '2025') {
+export function useStudentSchedule(studentId: string | null | undefined) {
   const [entries, setEntries] = useState<ScheduleEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState<string | null>(null);
+  const academicYearRef = useRef<string | null>(null);
+  const enrolledCoursesRef = useRef<Set<string> | null>(null);
+  const requestIdRef = useRef(0);
 
   const load = useCallback(async () => {
     if (!studentId) return;
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     setError(null);
     try {
+      if (!academicYearRef.current) {
+        academicYearRef.current = await fetchStudentAcademicYear(studentId);
+      }
+      const academicYear = academicYearRef.current;
+
+      if (!academicYear) {
+        if (requestId === requestIdRef.current) {
+          setError('Could not resolve academic year from the student\'s Program Enrollment');
+          setEntries([]);
+        }
+        return;
+      }
+
+      if (!enrolledCoursesRef.current) {
+        enrolledCoursesRef.current = await fetchEnrolledCourseSet(studentId);
+      }
+      const enrolledCourses = enrolledCoursesRef.current;
+
       const res: any = await apiClient.get('student_schedule', {
         params: { student: studentId, academic_year: academicYear },
       });
+
+      if (requestId !== requestIdRef.current) return;
+
       const raw: any[] = res?.message ?? res?.data?.message ?? [];
-      const data: ScheduleEntry[] = raw.map((e: any) => ({
+
+      const filteredRaw = enrolledCourses.size > 0
+        ? raw.filter((e: any) => enrolledCourses.has(e.course))
+        : raw;
+
+      if (raw.length !== filteredRaw.length) {
+        console.log(
+          `[useStudentSchedule] filtered ${raw.length - filteredRaw.length} entr${raw.length - filteredRaw.length === 1 ? 'y' : 'ies'} ` +
+          `not in student's Program Enrollment (student: ${studentId})`
+        );
+      }
+
+      const data: ScheduleEntry[] = filteredRaw.map((e: any) => ({
         ...e,
         meeting_link:        e.meeting_link        || e.custom_meeting_link || null,
         custom_meeting_link: e.custom_meeting_link || e.meeting_link        || null,
       }));
       setEntries(data);
     } catch (err: any) {
+      if (requestId !== requestIdRef.current) return;
       setError(
         err?.response?.data?.message ||
         err?.response?.data?.exc_type ||
         err?.message ||
-        'Schedule load nahi ho saka'
+        'Failed to load schedule'
       );
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, [studentId, academicYear]);
+  }, [studentId]);
+
+  useEffect(() => {
+    academicYearRef.current = null;
+    enrolledCoursesRef.current = null;
+  }, [studentId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -164,7 +246,15 @@ export function useStudentSchedule(studentId: string | null | undefined, academi
       .map(e => e.course);
   }, [entries]);
 
-  return { entries, byDate, courses, loading, error, refetch: load };
+  return {
+    entries,
+    byDate,
+    courses,
+    loading,
+    error,
+    refetch: load,
+    academicYear: academicYearRef.current,
+  };
 }
 
 // ── ClassCard ─────────────────────────────────────────────────────────────────
@@ -173,11 +263,17 @@ const ClassCard: React.FC<{ entry: ScheduleEntry; index: number; isGuardian: boo
   const c          = getCourseColor(entry.course);
   const courseName = formatCourseName(entry.course);
   const groupName  = formatGroupName(entry.student_group_name);
-  const fromTime   = parseTime(entry.from_time);
-  const toTime     = parseTime(entry.to_time);
+
+  const localFromTime = convertTimeForStudent(entry.from_time, entry.student);
+  const localToTime   = convertTimeForStudent(entry.to_time, entry.student);
+  const timezoneLabel = getTimezoneLabel(entry.student);
+
+  const fromTime   = parseTime(localFromTime);
+  const toTime     = parseTime(localToTime);
   const active     = isClassActive(entry);
   const hasLink    = !!(entry.meeting_link || entry.custom_meeting_link);
 
+  // Regular card
   return (
     <motion.div
       initial={{ opacity: 0, x: -12 }}
@@ -205,15 +301,18 @@ const ClassCard: React.FC<{ entry: ScheduleEntry; index: number; isGuardian: boo
           {entry.room && (
             <span className="flex items-center gap-1 text-[10px] text-gray-500 font-medium">
               <MapPin className="w-3 h-3" />
-              <span className="truncate max-w-[90px]" title={entry.room}>{entry.room}</span>
+              <span className="truncate max-w-22.5" title={entry.room}>{entry.room}</span>
+            </span>
+          )}
+          {timezoneLabel && (
+            <span className="flex items-center gap-1 text-[10px] text-gray-400 font-medium italic">
+              {timezoneLabel}
             </span>
           )}
         </div>
 
-        {/* Join Class button — only shown when a link exists AND user is not a guardian */}
         {hasLink && !isGuardian && (
           active ? (
-            // ✅ Class active hai — clickable green button
             <a
               href={(entry.meeting_link || entry.custom_meeting_link)!}
               target="_blank"
@@ -227,7 +326,6 @@ const ClassCard: React.FC<{ entry: ScheduleEntry; index: number; isGuardian: boo
               <Video className="w-3.5 h-3.5" /> Join Class
             </a>
           ) : (
-            // 🔒 Class abhi active nahi — disabled grey button
             <span
               className="mt-2.5 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl
                          bg-gray-100 text-gray-400 text-[11px] font-bold
@@ -242,7 +340,7 @@ const ClassCard: React.FC<{ entry: ScheduleEntry; index: number; isGuardian: boo
   );
 };
 
-// ── WeekStrip ─────────────────────────────────────────────────────────────────
+// ── WeekStrip (unchanged) ────────────────────────────────────────────────────
 
 const WeekStrip: React.FC<{
   weekStart: Date;
@@ -274,7 +372,7 @@ const WeekStrip: React.FC<{
   </div>
 );
 
-// ── MiniCal ───────────────────────────────────────────────────────────────────
+// ── MiniCal (unchanged) ──────────────────────────────────────────────────────
 
 const MiniCal: React.FC<{
   year: number; month: number;
@@ -320,7 +418,7 @@ const MiniCal: React.FC<{
   );
 };
 
-// ── SchedulePage ──────────────────────────────────────────────────────────────
+// ── SchedulePage ─────────────────────────────────────────────────────────────
 
 export const SchedulePage: React.FC = () => {
   const { user, role, activeStudentId } = useUser();
@@ -336,7 +434,7 @@ export const SchedulePage: React.FC = () => {
   const [calYear,      setCalYear]      = useState(() => new Date().getFullYear());
   const [calMonth,     setCalMonth]     = useState(() => new Date().getMonth());
 
-  const { byDate, courses, loading, error, refetch } = useStudentSchedule(studentId);
+  const { byDate, courses, loading, error, refetch, academicYear } = useStudentSchedule(studentId);
 
   const handleSelectDate = useCallback((d: Date) => {
     setSelectedDate(d);
@@ -360,9 +458,9 @@ export const SchedulePage: React.FC = () => {
         <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center mb-2">
           <Users className="w-7 h-7 text-blue-400" />
         </div>
-        <p className="text-base font-bold text-gray-700">Koi bachha select nahi hua</p>
+        <p className="text-base font-bold text-gray-700">No child selected</p>
         <p className="text-sm text-gray-400 max-w-xs">
-          Upar menu se apna bachha select karein taake schedule dekh sakein.
+          Select your child from the menu above to view the schedule.
         </p>
       </div>
     );
@@ -375,7 +473,7 @@ export const SchedulePage: React.FC = () => {
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
         className="bg-white rounded-3xl border border-gray-100 overflow-hidden shadow-sm"
       >
-        <div className="h-24 bg-gradient-to-r from-green-600 via-emerald-500 to-teal-500 relative flex items-end px-6 pb-4">
+        <div className="h-24 bg-linear-to-r from-green-600 via-emerald-500 to-teal-500 relative flex items-end px-6 pb-4">
           <div className="absolute inset-0 opacity-20"
             style={{ backgroundImage: `radial-gradient(circle, white 1px, transparent 1px)`, backgroundSize: '24px 24px' }} />
           <div className="relative flex items-center gap-3">
@@ -384,7 +482,9 @@ export const SchedulePage: React.FC = () => {
             </div>
             <div>
               <h2 className="text-lg font-extrabold text-white leading-tight">Class Schedule</h2>
-              <p className="text-[11px] text-white/70 font-medium">Academic Year 2025</p>
+              <p className="text-[11px] text-white/70 font-medium">
+                Academic Year {academicYear ?? '—'}
+              </p>
             </div>
           </div>
         </div>
@@ -507,7 +607,7 @@ export const SchedulePage: React.FC = () => {
           <div className="flex items-center gap-3 bg-red-50 text-red-600 rounded-2xl p-4 border border-red-100">
             <AlertCircle className="w-5 h-5 shrink-0" />
             <div className="flex-1">
-              <p className="text-sm font-semibold">Schedule load nahi ho saka</p>
+              <p className="text-sm font-semibold">Failed to load schedule</p>
               <p className="text-xs text-red-400 mt-0.5">{error}</p>
             </div>
             <button type="button" onClick={refetch} className="text-xs font-bold text-red-500 hover:text-red-700 underline">Retry</button>

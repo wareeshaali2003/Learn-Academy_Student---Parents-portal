@@ -25,8 +25,6 @@ export const useAttendance = (): UseAttendanceReturn => {
   const { user, role, activeStudentId } = useUser();
 
   const isGuardian = role === 'guardian';
-
-  // Dashboard wali same logic
   const studentId: string | undefined = isGuardian
     ? (activeStudentId ?? undefined)
     : (activeStudentId ?? user?.name ?? undefined);
@@ -46,6 +44,7 @@ export const useAttendance = (): UseAttendanceReturn => {
       setIsLoading(true);
       setError(null);
       try {
+        // Fetch attendance records
         const response: any = await resourceClient.get('Student Attendance', {
           params: {
             filters: JSON.stringify([['student', '=', studentId]]),
@@ -57,7 +56,10 @@ export const useAttendance = (): UseAttendanceReturn => {
             order_by: 'date desc',
           },
         });
-        setAttendance(response.data || []);
+
+        const allAttendance: AttendanceRecord[] = response.data || [];
+        setAttendance(allAttendance);
+        console.log(`✅ Attendance loaded: ${allAttendance.length} records`);
       } catch (err: any) {
         setError(err?.response?.data?.message || err?.message || 'Failed to fetch attendance');
         setAttendance([]);

@@ -1,6 +1,8 @@
+// hooks/Useschedule.ts
 import { useState, useEffect, useCallback } from 'react';
 import { apiClient, erpService, CourseScheduleEntry } from '../services/erpService';
 import { useUser } from '../context/UserContext';
+import { convertTimeForStudent, getTimezoneLabel } from '../lib/timezone';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -10,12 +12,17 @@ export interface ScheduleEntry {
   student_group_name: string;
   course: string;
   schedule_date: string;        // "YYYY-MM-DD"
-  from_time: string;            // "HH:MM:SS"
-  to_time: string;
+  from_time: string;            // "HH:MM:SS" — original, always PKT as stored
+  to_time: string;              // "HH:MM:SS" — original, always PKT as stored
   title: string;
   custom_meeting_link: string | null;
   student: string;
   room: string;
+
+  // Timezone display values
+  display_from_time: string;
+  display_to_time: string;
+  timezone_label: string;
 }
 
 export type ViewMode = 'week' | 'list';
@@ -25,12 +32,10 @@ export type ViewMode = 'week' | 'list';
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function stripSchoolPrefix(raw: string): string {
-  // "LB-KG1-Math" → "KG1-Math"  |  "LB-KG1-Stem" → "KG1-Stem"
   return raw.replace(/^[A-Z]{1,5}-/, '');
 }
 
 export function formatTime(timeStr: string): string {
-  // "9:00:00" or "14:00:00" → "9:00 AM" / "2:00 PM"
   const [hRaw, m] = timeStr.split(':');
   const h = parseInt(hRaw, 10);
   const period = h >= 12 ? 'PM' : 'AM';
@@ -64,8 +69,18 @@ export function dayLabel(dateStr: string): string {
   });
 }
 
+// Attaches timezone-converted display times to each raw entry
+function withDisplayTimes(raw: any[]): ScheduleEntry[] {
+  return raw.map((e) => ({
+    ...e,
+    display_from_time: convertTimeForStudent(e.from_time, e.student),
+    display_to_time: convertTimeForStudent(e.to_time, e.student),
+    timezone_label: getTimezoneLabel(e.student),
+  }));
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Course colour palette (consistent per course name)
+// Course colour palette
 // ─────────────────────────────────────────────────────────────────────────────
 
 const PALETTE = [
@@ -103,10 +118,13 @@ async function fetchStudentScheduleCustom(
   if (startDate) params.start_date = startDate;
   if (endDate)   params.end_date   = endDate;
 
-  // Using apiClient (baseURL = /api/method) so full path = /api/method/student_schedule
   const res: any = await apiClient.get('student_schedule', { params });
   const raw: any[] = res?.message || res?.data || [];
-  return raw as ScheduleEntry[];
+
+  // Debug log
+  console.log("🔍 Useschedule API Response:", raw);
+
+  return withDisplayTimes(raw);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -138,7 +156,7 @@ export function useStudentSchedule(studentId: string | undefined) {
       try {
         const fallback = await erpService.getWeeklySchedule(studentId, weekOffset);
         // map CourseScheduleEntry → ScheduleEntry shape
-        const mapped: ScheduleEntry[] = fallback.map((e: CourseScheduleEntry) => ({
+        const mapped = fallback.map((e: CourseScheduleEntry) => ({
           student_group_name: e.student_group,
           course:             e.course,
           schedule_date:      e.schedule_date,
@@ -149,9 +167,9 @@ export function useStudentSchedule(studentId: string | undefined) {
           student:            studentId,
           room:               e.room,
         }));
-        setEntries(mapped);
+        setEntries(withDisplayTimes(mapped));
       } catch (fallbackErr: any) {
-        setError(fallbackErr?.message || 'Schedule load nahi ho saki');
+        setError(fallbackErr?.message || 'Schedule is unable to load');
       }
     } finally {
       setLoading(false);
@@ -187,7 +205,7 @@ export function useStudentSchedule(studentId: string | undefined) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Hook: useAllSchedule  (no date filter — full list view)
+// Hook: useAllSchedule
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function useAllSchedule(studentId: string | undefined) {
@@ -205,7 +223,7 @@ export function useAllSchedule(studentId: string | undefined) {
         const data = await fetchStudentScheduleCustom(studentId);
         if (!cancelled) setEntries(data);
       } catch (err: any) {
-        if (!cancelled) setError(err?.message || 'Schedule load nahi ho saki');
+        if (!cancelled) setError(err?.message || 'Schedule is unable to load');
       } finally {
         if (!cancelled) setLoading(false);
       }

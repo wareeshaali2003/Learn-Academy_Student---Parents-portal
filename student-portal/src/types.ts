@@ -12,7 +12,20 @@ export interface UserContextType {
   role: 'student' | 'guardian' | null;
   activeStudentId: string | null;
 }
-
+export interface AssignmentDetail {
+  name: string;
+  owner: string;
+  creation: string;
+  modified: string;
+  modified_by: string;
+  docstatus: number;
+  idx: number;
+  course: string;
+  link_gdbv: string;
+  heading: string;
+  description: string;
+  doctype: string;
+}
 // ─── Student ──────────────────────────────────────────────────────────────────
 export interface Student {
   name: string;
@@ -49,7 +62,41 @@ export interface Student {
   siblings?: any[];
   guardian_email?: string;
 }
+export interface QuizQuestion {
+  name: string;
+  question_link: string;
+  question: string; // HTML content
+  idx: number;
+}
+export interface Quiz {
+  name: string;
+  title: string;
+  passing_score: number;
+  max_attempts: number;
+  grading_basis: 'Latest Attempt' | 'Highest Score' | string;
+  is_time_bound: 0 | 1;
+  duration: number;
+  question: QuizQuestion[];
+  creation: string;
+  modified: string; // original field, ab optional/base rakhein
+}
 
+export interface QuizSubmission {
+  name: string;
+  quiz: string;
+  student: string;
+  score: number;
+  status: 'Completed' | 'In Progress' | 'Not Started';
+  attempt: number;
+  submitted_on?: string;
+}
+
+// FIX: Omit both 'status' AND 'score' before overriding them
+export interface QuizWithAttempt extends Omit<Quiz, 'status' | 'score'> {
+  status: 'Completed' | 'Not Started';
+  score: number | null;
+  date: string;
+}
 // ─── Guardian ─────────────────────────────────────────────────────────────────
 export interface Guardian {
   name: string;
@@ -65,9 +112,7 @@ export interface Guardian {
   students?: { student: string; student_name: string }[];
 
   // ── ProfilePage compatibility fields ──────────────────────────────────────
-  // Guardian khud ka profile nahi dikhata — yeh fields linked child ki
-  // StudentProfile se aati hain. Yahan optional rakha hai taake
-  // "displayProfile.student_name" jaisi access pe TypeScript error na aaye.
+  
   student_name?: string;
   student_email_id?: string;
   student_mobile_number?: string;

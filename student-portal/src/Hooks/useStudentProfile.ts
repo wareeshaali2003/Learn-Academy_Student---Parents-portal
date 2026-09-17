@@ -16,7 +16,13 @@ export function useStudentProfile(studentId: string | undefined) {
   const [error, setError]     = useState<string | null>(null);
 
   useEffect(() => {
-    if (!studentId) return;
+    if (!studentId) {
+      setProfile(null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
     let cancelled = false;
     (async () => {
       setLoading(true);
@@ -26,9 +32,14 @@ export function useStudentProfile(studentId: string | undefined) {
         if (!cancelled && data) {
           data.image = resolveImageUrl(data.image);
           setProfile(data);
+        } else if (!cancelled) {
+          setProfile(null);
         }
       } catch (err: any) {
-        if (!cancelled) setError(err?.message || 'Profile load nahi ho saki');
+        if (!cancelled) {
+          setError(err?.message || 'Profile is unable to load');
+          setProfile(null);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -37,4 +48,4 @@ export function useStudentProfile(studentId: string | undefined) {
   }, [studentId]);
 
   return { profile, setProfile, loading, error };
-}
+} 

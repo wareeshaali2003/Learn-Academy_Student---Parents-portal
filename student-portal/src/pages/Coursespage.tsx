@@ -40,7 +40,7 @@ export function useEnrolledCourses(studentId: string | undefined) {
         const data = await erpService.getEnrolledCourses(studentId);
         if (!cancelled) setEnrollments(data);
       } catch (err: any) {
-        if (!cancelled) setError(err?.message || 'Courses load nahi ho sake');
+        if (!cancelled) setError(err?.message || 'Courses is unable to load');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -65,7 +65,7 @@ export function usePrograms() {
         const data = await erpService.getPrograms();
         if (!cancelled) setPrograms(data);
       } catch (err: any) {
-        if (!cancelled) setError(err?.message || 'Programs load nahi ho sake');
+        if (!cancelled) setError(err?.message || 'Programs is unable to load');
       } finally {
         if (!cancelled) setLoading(false);
       }

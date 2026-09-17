@@ -6,6 +6,7 @@ import {
   StudentProfile,
   ProgramEnrollment,
   AttendanceSummary,
+  GuardianFullDetail,
 } from '../services/erpService';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -13,9 +14,11 @@ import {
   Hash, GraduationCap, BookOpen, Users,
   Droplet, School, CheckCircle2, XCircle,
   TrendingUp, Loader2, AlertCircle, Shield,
-  Camera, X, Eye,
+  Camera, X, Eye, CreditCard,
 } from 'lucide-react';
 import { FaceDetector, FilesetResolver } from '@mediapipe/tasks-vision';
+import { StudentIDCardModal, StudentIDCardData } from '../components/Studentidcardmodal';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
@@ -129,7 +132,7 @@ async function cropToPassport(file: File): Promise<{ blob: Blob; dataUrl: string
 
   if (detections.length === 0) {
     throw new Error(
-      'Chehra detect nahi hua.\n• Clear, front-facing photo use karein\n• Achhi lighting mein photo len\n• Sunglasses / naqab nahi hona chahiye'
+      'Face could not be detected.\n• Use a clear, front-facing photo\n• Take the photo in good lighting\n• Remove sunglasses / face coverings'
     );
   }
 
@@ -428,7 +431,7 @@ const AvatarUploader: React.FC<AvatarUploaderProps> = ({
   type="file"
   accept="image/*"
   className="hidden"
-  onChange={handleChange}       // ← sahi naam
+  onChange={handleChange}
 />
 
       <AnimatePresence>
@@ -466,7 +469,7 @@ export function useStudentProfile(studentId: string | undefined) {
           setProfile(data);
         }
       } catch (err: any) {
-        if (!cancelled) setError(err?.message || 'Profile load nahi ho saki');
+        if (!cancelled) setError(err?.message || 'Profile could not be loaded');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -521,6 +524,45 @@ export function useEnrolledCourses(studentId: string | undefined) {
   }, [studentId]);
 
   return { enrollments, loading };
+}
+
+// 👇👇👇 NEW HOOK — ADDED 👇👇👇
+export function useStudentGuardians(profile: StudentProfile | null) {
+  const [guardians, setGuardians] = useState<GuardianFullDetail[]>([]);
+  const [loading, setLoading]     = useState(false);
+
+  useEffect(() => {
+    const links = profile?.guardians;
+    if (!links || links.length === 0) {
+      setGuardians([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const ids = links.map(g => g.guardian).filter(Boolean) as string[];
+        const data = await erpService.getGuardiansDetail(ids);
+
+        if (!cancelled) {
+          const relationMap: Record<string, string> = {};
+          links.forEach(g => {
+            if (g.guardian) relationMap[g.guardian] = g.relation || '';
+          });
+          setGuardians(
+            data.map(g => ({ ...g, relation: relationMap[g.name] || g.relation || '' }))
+          );
+        }
+      } catch {
+        if (!cancelled) setGuardians([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [profile]);
+
+  return { guardians, loading };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -582,6 +624,133 @@ function InfoRow({
   );
 }
 
+// 👇👇👇 GuardianCard — GREEN GRADIENT TOP BAR (matches student profile hero) 👇👇👇
+function GuardianCard({ guardian }: { guardian: GuardianFullDetail }) {
+  const initials = (name?: string) =>
+    (name || 'G').split(' ').slice(0, 2).map(n => n[0]?.toUpperCase() ?? '').join('');
+
+  const contactRows = [
+    { icon: Phone, label: 'Mobile', value: guardian.mobile_number },
+    { icon: Phone, label: 'Alternate', value: guardian.alternate_number },
+    { icon: Mail, label: 'Email', value: guardian.email_address },
+  ].filter(r => r.value);
+
+  const otherRows = [
+    { icon: Calendar, label: 'Date of Birth', value: formatDate(guardian.date_of_birth) },
+    { icon: CreditCard, label: 'ID Type', value: guardian.id_type },
+    { icon: Hash, label: 'ID Number', value: guardian.id_number },
+    { icon: BookOpen, label: 'Education', value: guardian.education },
+    { icon: BookOpen, label: 'Occupation', value: guardian.occupation },
+    { icon: BookOpen, label: 'Designation', value: guardian.designation },
+    { icon: MapPin, label: 'Work Address', value: guardian.work_address },
+  ].filter(r => r.value);
+
+  const relationStyle: Record<string, string> = {
+    Father: 'bg-blue-50 text-blue-600 border-blue-100',
+    Mother: 'bg-pink-50 text-pink-600 border-pink-100',
+    Guardian: 'bg-amber-50 text-amber-600 border-amber-100',
+  };
+  const relBadge = relationStyle[guardian.relation || ''] || 'bg-gray-100 text-gray-500 border-gray-200';
+
+  return (
+    <div className="relative h-full w-full flex flex-col rounded-2xl border border-gray-100 bg-white
+                     shadow-sm hover:shadow-md transition-shadow overflow-hidden min-h-[280px]">
+      {/* ✅ GREEN gradient top accent bar — matches student profile hero */}
+      <div className="h-1.5 w-full bg-linear-to-r from-green-600 via-emerald-500 to-teal-500" />
+
+      {/* header */}
+      <div className="flex items-center gap-3 px-5 pt-4 pb-3 border-b border-gray-50">
+        <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center
+                         justify-center font-bold text-base shrink-0 ring-4 ring-blue-50/50">
+          {initials(guardian.guardian_name)}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-bold text-gray-900 truncate">
+            {guardian.guardian_name || guardian.name}
+          </p>
+          <div className="flex items-center gap-1.5 mt-1">
+            {guardian.relation && (
+              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${relBadge}`}>
+                {guardian.relation}
+              </span>
+            )}
+            <span className="text-[10px] text-gray-400 font-mono">{guardian.name}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* body */}
+      <div className="flex-1 px-5 py-4 flex flex-col gap-4">
+        {contactRows.length > 0 && (
+          <div>
+            <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-2">
+              Contact
+            </p>
+            <div className="flex flex-col gap-2.5">
+              {contactRows.map(r => (
+                <div key={r.label} className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
+                    <r.icon className="w-3.5 h-3.5 text-blue-500" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[9px] text-gray-400 font-semibold uppercase tracking-wide leading-none">
+                      {r.label}
+                    </p>
+                    <p className="text-xs font-semibold text-gray-800 truncate mt-1">
+                      {r.value}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {otherRows.length > 0 && (
+          <div>
+            <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-2">
+              Additional Details
+            </p>
+            <div className="flex flex-col gap-2.5">
+              {otherRows.map(r => (
+                <div key={r.label} className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center shrink-0">
+                    <r.icon className="w-3.5 h-3.5 text-gray-400" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[9px] text-gray-400 font-semibold uppercase tracking-wide leading-none">
+                      {r.label}
+                    </p>
+                    <p className="text-xs font-semibold text-gray-800 break-words mt-1">
+                      {r.value}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {contactRows.length === 0 && otherRows.length === 0 && (
+          <div className="flex-1 flex items-center justify-center">
+            <p className="text-xs text-gray-300 italic">No additional details available</p>
+          </div>
+        )}
+      </div>
+
+            {/* footer — mt-auto keeps it pinned to bottom */}
+      <div className="mt-auto px-5 py-2.5 border-t border-gray-100 flex items-center justify-between bg-gray-50/60">
+        <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">
+          {guardian.relation || 'Guardian'}
+        </span>
+        <span className="text-[10px] text-gray-500 font-medium font-mono truncate max-w-[130px]">
+          {guardian.name}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function StatCard({ icon: Icon, label, value, color, iconColor }: {
   icon: React.ElementType; label: string; value: string | number; color: string; iconColor: string;
 }) {
@@ -623,7 +792,6 @@ const COURSE_COLORS = [
   { bg: 'bg-cyan-50',    border: 'border-cyan-200',    text: 'text-cyan-700',    dot: 'bg-cyan-400'    },
 ];
 
-// Strip leading school-code prefix e.g. "LB-KG1-Math" → "KG1-Math"
 function formatCourseName(raw: string): string {
   return raw.replace(/^[A-Z]{1,5}-/, '');
 }
@@ -633,35 +801,42 @@ export const ProfilePage: React.FC = () => {
 
   const isGuardian = role === 'guardian';
 
-  // Guardian ke liye: activeStudentId hona chahiye (selected child)
-  // Student ke liye: apna user.name
-  // Guardian ka apna user.name kabhi student ID nahi hoga — isliye guard lagaya
   const studentId: string | undefined = isGuardian
-    ? (activeStudentId ?? undefined)          // guardian: sirf activeStudentId, user.name nahi
-    : (activeStudentId ?? user?.name ?? undefined); // student: dono fallback ok hain
+    ? (activeStudentId ?? undefined)          
+    : (activeStudentId ?? user?.name ?? undefined);
 
   const { profile, setProfile, loading: profileLoading, error: profileError } = useStudentProfile(studentId);
   const { summary, loading: attLoading }        = useAttendanceSummary(studentId);
   const { enrollments, loading: enrollLoading } = useEnrolledCourses(studentId);
+  const { guardians, loading: guardiansLoading } = useStudentGuardians(profile);
 
   const isLoading  = profileLoading || attLoading || enrollLoading;
   const allCourses = enrollments.flatMap(e => e.courses);
   const displayProfile = profile || user;
 
+  const [showIdCard, setShowIdCard] = useState(false);
+
+  const idCardData: StudentIDCardData | null = (displayProfile && studentId) ? {
+    student_id: studentId,
+    student_name: displayProfile.student_name || '',
+    grade: (displayProfile as any)?.custom_batch || enrollments[0]?.program,
+    email: displayProfile.student_email_id,
+    image: displayProfile.image,
+  } : null;
+
   const handlePhotoSuccess = useCallback((url: string) => {
     setProfile(prev => prev ? { ...prev, image: url } : prev);
   }, [setProfile]);
 
-  // Guardian ne koi child select nahi kiya
   if (isGuardian && !activeStudentId) {
     return (
       <div className="flex flex-col items-center justify-center py-32 gap-3 text-center px-6">
         <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center mb-2">
           <Users className="w-7 h-7 text-blue-400" />
         </div>
-        <p className="text-base font-bold text-gray-700">Koi bachha select nahi hua</p>
+        <p className="text-base font-bold text-gray-700">No Child Selected</p>
         <p className="text-sm text-gray-400 max-w-xs">
-          Upar menu se apna bachha select karein taake unka profile dekh sakein.
+          Please select a child from the menu above to view their profile.
         </p>
       </div>
     );
@@ -719,7 +894,6 @@ export const ProfilePage: React.FC = () => {
         <div className="px-6 pt-0 pb-6">
           <div className="flex flex-col sm:flex-row sm:items-start gap-4">
 
-            {/* Guardian = sirf dekhna, Student = upload bhi */}
             {isGuardian ? (
               <div className="relative flex flex-col items-center">
                 <div className="relative w-20 h-20 rounded-2xl border-4 border-white shadow-xl bg-green-50
@@ -747,7 +921,6 @@ export const ProfilePage: React.FC = () => {
                 <h2 className="text-xl font-extrabold text-gray-900 leading-tight">
                   {displayProfile?.student_name}
                 </h2>
-                {/* Student ke liye hint, guardian ke liye nahi */}
                 {!isGuardian && (
                   <p className="text-[10px] text-gray-400 mt-0.5 flex items-center gap-1">
                     <Eye className="w-3 h-3" />
@@ -778,8 +951,18 @@ export const ProfilePage: React.FC = () => {
                   </span>
                 </div>
               </div>
-              <div className="shrink-0">
+              <div className="flex flex-col items-end gap-2 shrink-0">
                 <AttendanceRing percentage={summary.percentage} />
+                {idCardData && (
+                  <button
+                    onClick={() => setShowIdCard(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary-green
+                               bg-green-50 hover:bg-green-100 rounded-xl border border-green-200 transition-colors"
+                  >
+                    <CreditCard className="w-3.5 h-3.5" />
+                    Print ID Card
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -797,14 +980,15 @@ export const ProfilePage: React.FC = () => {
         </div>
       </motion.div>
 
-      {/* Two-column detail */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            {/* Two-column detail */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-stretch">
         <motion.div
           initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.1 }}
           className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm"
         >
           <SectionHeader icon={User} title="Personal Information" />
+          <InfoRow icon={Shield}   label="Profile ID"      value={studentId}                                 alwaysShow />
           <InfoRow icon={Mail}     label="Email"           value={displayProfile?.student_email_id} />
           <InfoRow icon={Phone}    label="Mobile"          value={displayProfile?.student_mobile_number} />
           <InfoRow icon={User}     label="Gender"          value={displayProfile?.gender}                    alwaysShow />
@@ -820,9 +1004,9 @@ export const ProfilePage: React.FC = () => {
         <motion.div
           initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.15 }}
-          className="space-y-5"
+          className="h-full"
         >
-          <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+          <div className="h-full bg-white rounded-2xl border border-gray-100 p-5 shadow-sm flex flex-col">
             <SectionHeader
               icon={BookOpen}
               title="Enrolled in Program"
@@ -833,7 +1017,7 @@ export const ProfilePage: React.FC = () => {
               ) : undefined}
             />
             {allCourses.length > 0 ? (
-              <div className="space-y-2">
+              <div className="space-y-2 overflow-y-auto pr-1 -mr-1 max-h-[420px]">
                 {allCourses.map((course, i) => {
                   const c = COURSE_COLORS[i % COURSE_COLORS.length];
                   const name = formatCourseName(course.course_name || course.course || '');
@@ -856,6 +1040,53 @@ export const ProfilePage: React.FC = () => {
           </div>
         </motion.div>
       </div>
+
+      {/*GUARDIANS SECTION */}
+      <motion.div
+        initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.2 }}
+        className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm"
+      >
+        <SectionHeader
+          icon={Users}
+          title="Guardians"
+          extra={
+            guardians.length > 0 ? (
+              <span className="text-xs text-gray-400 font-medium">
+                {guardians.length} {guardians.length === 1 ? 'guardian' : 'guardians'}
+              </span>
+            ) : undefined
+          }
+        />
+
+        {guardiansLoading ? (
+          <div className="flex items-center gap-2 text-xs text-gray-400 py-6 justify-center">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Loading guardian details…
+          </div>
+        ) : guardians.length === 0 ? (
+          <div className="flex items-center gap-3 py-2">
+            <div className="w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center shrink-0">
+              <Users className="w-3.5 h-3.5 text-gray-300" />
+            </div>
+            <p className="text-sm text-gray-300 italic font-medium">
+              No guardian records found
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 auto-rows-fr">
+            {guardians.map(g => (
+              <GuardianCard key={g.name} guardian={g} />
+            ))}
+          </div>
+        )}
+      </motion.div>
+
+      {/* ID Card print modal */}
+      <StudentIDCardModal
+        student={showIdCard ? idCardData : null}
+        onClose={() => setShowIdCard(false)}
+      />
     </div>
   );
 };

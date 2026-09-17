@@ -81,16 +81,15 @@ export const AttendancePage: React.FC = () => {
   const { attendance, isLoading, error } = useAttendance();
   const [listFilter, setListFilter] = useState<FilterType>('All');
 
-  // Guardian ne koi child select nahi kiya
   if (role === 'guardian' && !activeStudentId) {
     return (
       <div className="flex flex-col items-center justify-center py-32 gap-3 text-center px-6">
         <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center mb-2">
           <Users className="w-7 h-7 text-blue-400" />
         </div>
-        <p className="text-base font-bold text-gray-700">Koi bachha select nahi hua</p>
+        <p className="text-base font-bold text-gray-700">No student is selected</p>
         <p className="text-sm text-gray-400 max-w-xs">
-          Upar menu se apna bachha select karein taake attendance dekh sakein.
+          Select a student from the menu above to view their attendance.
         </p>
       </div>
     );
@@ -118,7 +117,7 @@ export const AttendancePage: React.FC = () => {
   const stats = {
     present: attendance.filter(a => a.status === 'Present').length,
     absent:  attendance.filter(a => a.status === 'Absent').length,
-    leave:   attendance.filter(a => a.status === 'On Leave').length,  // ← fixed
+    leave:   attendance.filter(a => a.status === 'On Leave').length,
   };
 
   const sortedAttendance = [...attendance].sort(
@@ -175,8 +174,6 @@ export const AttendancePage: React.FC = () => {
 
       {/* List View */}
       <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-
-        {/* Filter tabs */}
         <div className="flex gap-1 p-3 border-b border-gray-50 bg-gray-50/50">
           {(['All', 'Present', 'Absent', 'On Leave'] as const).map(f => (
             <button
@@ -205,7 +202,6 @@ export const AttendancePage: React.FC = () => {
           </span>
         </div>
 
-        {/* Records */}
         {filteredList.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-400">
             <Clock className="w-8 h-8 opacity-40" />
@@ -220,7 +216,6 @@ export const AttendancePage: React.FC = () => {
               return (
                 <div key={i} className="flex items-start justify-between px-5 py-4 hover:bg-gray-50/50 transition-colors gap-4">
                   <div className="flex items-start gap-4 min-w-0">
-                    {/* Date block */}
                     <div className={cn(
                       'w-12 h-12 rounded-xl flex flex-col items-center justify-center flex-shrink-0 border',
                       record.status === 'Present'  ? 'bg-emerald-50 border-emerald-100 text-emerald-700' :
@@ -264,3 +259,5 @@ export const AttendancePage: React.FC = () => {
     </div>
   );
 };
+
+export default AttendancePage;

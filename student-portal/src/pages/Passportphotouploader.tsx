@@ -171,7 +171,7 @@ async function cropToPassport(file: File): Promise<{ blob: Blob; dataUrl: string
     passportCanvas.toBlob(
       (b) => (b ? resolve(b) : reject(new Error('Canvas export failed'))),
       'image/jpeg',
-      0.92  // high quality — pixels nahi phate
+      0.92  
     );
   });
 

@@ -335,16 +335,15 @@ export const FeesPage: React.FC = () => {
       ? invoices
       : invoices.filter((inv) => inv.status === filter);
 
-  // ── Guardian ne koi bachha select nahi kiya ───────────────────────────────
   if (role === 'guardian' && !activeStudentId) {
     return (
       <div className="flex flex-col items-center justify-center py-32 gap-3 text-center px-6">
         <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center mb-2">
           <Users className="w-7 h-7 text-blue-400" />
         </div>
-        <p className="text-base font-bold text-gray-700">Koi bachha select nahi hua</p>
+        <p className="text-base font-bold text-gray-700">No Child Selected</p>
         <p className="text-sm text-gray-400 max-w-xs">
-          Upar menu se apna bachha select karein taake fees dekh sakein.
+          Please select a child from the menu above to view their fees.
         </p>
       </div>
     );

@@ -1,19 +1,11 @@
 // pages/ReportCardPage.tsx
-// Learn Academy – Parents Portal – Report Card
-// Fix: (1) Print/Preview mein dono terms hamesha aayein (term filter sirf cards pe)
-//      (2) Duplicate course+term entries merge ho jaayein (avg score)
-//      (3) student_group mismatch gracefully handle ho
-// NEW:  Separate Mid Term / Final Term / Both Terms print+preview buttons
-
 import React, { useEffect, useState, FC, CSSProperties } from "react";
 import { useUser } from "../context/UserContext";
 import { motion, AnimatePresence } from "motion/react";
-import { Printer, Eye, X, Users, AlertCircle, FileText } from "lucide-react";
+import { Printer, Eye, X, Users, AlertCircle } from "lucide-react";
 
-// ─── ERPNext Base URL ─────────────────────────────────────────────────────────
-const BASE = ""; // same-origin
+const BASE = "";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
 interface AssessmentDetail {
   assessment_criteria: string;
   maximum_score: number;
@@ -69,7 +61,7 @@ function useReportCard(studentId: string | null | undefined) {
           `${BASE}/api/resource/Assessment Result?filters=[["student","=","${studentId}"]]&fields=["name"]&limit=200`,
           { credentials: "include" }
         );
-        if (!listRes.ok) throw new Error("Assessment results fetch nahi hue. Network check karein.");
+        if (!listRes.ok) throw new Error("Assessment results could not be fetched. Please check your network connection.");
 
         const listData = await listRes.json();
         const names: string[] = (listData.data || []).map((r: any) => r.name);
@@ -83,7 +75,7 @@ function useReportCard(studentId: string | null | undefined) {
           names.map((name) =>
             fetch(`${BASE}/api/resource/Assessment Result/${name}`, { credentials: "include" })
               .then((r) => {
-                if (!r.ok) throw new Error(`${name} load nahi hua`);
+                if (!r.ok) throw new Error(`${name} could not be fetched`);
                 return r.json();
               })
               .then((d) => d.data as AssessmentResult)
@@ -102,7 +94,6 @@ function useReportCard(studentId: string | null | undefined) {
     };
 
     fetchResults();
-
     return () => { cancelled = true; };
   }, [studentId]);
 
@@ -112,23 +103,18 @@ function useReportCard(studentId: string | null | undefined) {
 // ─── Merge duplicate course+term entries ─────────────────────────────────────
 function deduplicateResults(results: AssessmentResult[]): AssessmentResult[] {
   const map = new Map<string, AssessmentResult>();
-
   for (const r of results) {
     const key = `${getCourseName(r.course)}__${r.academic_term}__${r.academic_year}`;
     const existing = map.get(key);
     if (!existing) {
       map.set(key, r);
     } else {
-      if (r.total_score > existing.total_score) {
-        map.set(key, r);
-      }
+      if (r.total_score > existing.total_score) map.set(key, r);
     }
   }
-
   return Array.from(map.values());
 }
 
-// ─── Build report card results with termFilter support ───────────────────────
 function buildReportCardResults(
   results: AssessmentResult[],
   filters: FilterState,
@@ -139,12 +125,8 @@ function buildReportCardResults(
     (!filters.group || r.student_group === filters.group)
   );
 
-  // Apply term filter for mid/final only modes
-  if (termFilter === "mid") {
-    filtered = filtered.filter(r => isMidTerm(r.academic_term));
-  } else if (termFilter === "final") {
-    filtered = filtered.filter(r => !isMidTerm(r.academic_term));
-  }
+  if (termFilter === "mid")   filtered = filtered.filter(r => isMidTerm(r.academic_term));
+  if (termFilter === "final") filtered = filtered.filter(r => !isMidTerm(r.academic_term));
 
   const base = filtered.length ? filtered : results.filter(r => {
     if (termFilter === "mid")   return isMidTerm(r.academic_term);
@@ -178,7 +160,6 @@ const C = {
   tableRow:      "#f0faf5",
 } as const;
 
-// ─── PSD Objectives ───────────────────────────────────────────────────────────
 const PSD_OBJECTIVES = [
   "Is enthusiastic and resourceful learner",
   "Self-disciplined and resolves difficulties in mature ways",
@@ -263,18 +244,17 @@ const SummaryBar: FC<{ results: AssessmentResult[] }> = ({ results }) => {
   const grades = results.map(r => r.grade).sort();
 
   const stats = [
-    { label: "Subjects",     value: results.length.toString() },
-    { label: "Total Marks",  value: `${totalObt}/${totalMax}` },
-    { label: "Overall %",    value: `${pct}%` },
-    { label: "Best Grade",   value: grades[0] || "—" },
+    { label: "Subjects",    value: results.length.toString() },
+    { label: "Total Marks", value: `${totalObt}/${totalMax}` },
+    { label: "Overall %",   value: `${pct}%` },
+    { label: "Best Grade",  value: grades[0] || "—" },
   ];
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 12, marginBottom: 20 }}>
       {stats.map(({ label, value }) => (
         <div key={label} style={{
-          background: C.surface,
-          border: `1px solid ${C.border}`,
+          background: C.surface, border: `1px solid ${C.border}`,
           borderRadius: 12, padding: "14px 16px", textAlign: "center",
           boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
         }}>
@@ -297,12 +277,9 @@ const Filters: FC<{
   const groups = [...new Set(results.map(r => r.student_group))];
 
   const sel: CSSProperties = {
-    padding: "7px 10px",
-    border: `1px solid ${C.border}`,
-    borderRadius: 8, fontSize: 13,
-    color: C.textPrimary,
-    background: C.white,
-    cursor: "pointer",
+    padding: "7px 10px", border: `1px solid ${C.border}`,
+    borderRadius: 8, fontSize: 13, color: C.textPrimary,
+    background: C.white, cursor: "pointer",
   };
 
   return (
@@ -338,11 +315,8 @@ const SubjectCard: FC<{ result: AssessmentResult; index: number }> = ({ result, 
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.07 }}
       style={{
-        background: C.surface,
-        border: `1px solid ${C.border}`,
-        borderRadius: 12,
-        overflow: "hidden",
-        marginBottom: 12,
+        background: C.surface, border: `1px solid ${C.border}`,
+        borderRadius: 12, overflow: "hidden", marginBottom: 12,
         boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
       }}
     >
@@ -350,8 +324,7 @@ const SubjectCard: FC<{ result: AssessmentResult; index: number }> = ({ result, 
         onClick={() => setOpen(o => !o)}
         style={{
           display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "14px 18px",
-          cursor: "pointer",
+          padding: "14px 18px", cursor: "pointer",
           background: open ? C.brandLight : C.surface,
           transition: "background .2s",
         }}
@@ -438,26 +411,22 @@ const SubjectCard: FC<{ result: AssessmentResult; index: number }> = ({ result, 
   );
 };
 
-// ─── Build courseMap for report card ─────────────────────────────────────────
+// ─── Build courseMap ──────────────────────────────────────────────────────────
 function buildCourseMap(results: AssessmentResult[]) {
   const map: Record<string, { mid?: AssessmentResult; final?: AssessmentResult }> = {};
   for (const r of results) {
     const cn = getCourseName(r.course);
     if (!map[cn]) map[cn] = {};
     if (isMidTerm(r.academic_term)) {
-      if (!map[cn].mid || r.total_score > map[cn].mid!.total_score) {
-        map[cn].mid = r;
-      }
+      if (!map[cn].mid || r.total_score > map[cn].mid!.total_score) map[cn].mid = r;
     } else {
-      if (!map[cn].final || r.total_score > map[cn].final!.total_score) {
-        map[cn].final = r;
-      }
+      if (!map[cn].final || r.total_score > map[cn].final!.total_score) map[cn].final = r;
     }
   }
   return map;
 }
 
-// ─── Print HTML Builder (termFilter aware) ────────────────────────────────────
+// ─── Print HTML Builder ───────────────────────────────────────────────────────
 function buildPrintHTML(
   reportResults: AssessmentResult[],
   studentName: string,
@@ -472,7 +441,6 @@ function buildPrintHTML(
   const finalTotal   = finalResults.reduce((s, r) => s + r.total_score, 0);
   const finalMax     = finalResults.reduce((s, r) => s + r.maximum_score, 0);
 
-  // Which columns to show based on termFilter
   const hasMid   = termFilter !== "final" && midResults.length > 0;
   const hasFinal = termFilter !== "mid"   && finalResults.length > 0;
 
@@ -483,16 +451,15 @@ function buildPrintHTML(
   const subjectRows = Object.entries(courseMap).map(([cn, { mid, final: fin }]) => `
     <tr>
       <td>${cn.toUpperCase()}</td>
-      ${hasMid   ? `<td style="text-align:center">${mid  ? mid.total_score  : "—"}</td>` : ""}
-      ${hasFinal ? `<td style="text-align:center">${fin  ? fin.total_score  : "—"}</td>` : ""}
+      ${hasMid   ? `<td style="text-align:center">${mid ? mid.total_score : "—"}</td>` : ""}
+      ${hasFinal ? `<td style="text-align:center">${fin ? fin.total_score : "—"}</td>` : ""}
     </tr>
   `).join("");
 
   const midPct   = midMax   > 0 ? Math.round((midTotal   / midMax)   * 100) + "%" : "—";
   const finalPct = finalMax > 0 ? Math.round((finalTotal / finalMax) * 100) + "%" : "—";
-
-  const midGrade   = midResults.sort((a,b)=>b.total_score-a.total_score)[0]?.grade || "—";
-  const finalGrade = finalResults.sort((a,b)=>b.total_score-a.total_score)[0]?.grade || "—";
+  const midGrade   = midResults.sort((a, b) => b.total_score - a.total_score)[0]?.grade || "—";
+  const finalGrade = finalResults.sort((a, b) => b.total_score - a.total_score)[0]?.grade || "—";
 
   return `<!DOCTYPE html>
 <html>
@@ -564,16 +531,8 @@ function buildPrintHTML(
   <table style="margin-top:8px">
     <thead><tr><th class="left">Term</th><th>Percentage</th><th>Grade</th></tr></thead>
     <tbody>
-      ${hasMid ? `<tr>
-        <td>Mid Term</td>
-        <td style="text-align:center">${midPct}</td>
-        <td style="text-align:center">${midGrade}</td>
-      </tr>` : ""}
-      ${hasFinal ? `<tr>
-        <td>Final Term</td>
-        <td style="text-align:center">${finalPct}</td>
-        <td style="text-align:center">${finalGrade}</td>
-      </tr>` : ""}
+      ${hasMid ? `<tr><td>Mid Term</td><td style="text-align:center">${midPct}</td><td style="text-align:center">${midGrade}</td></tr>` : ""}
+      ${hasFinal ? `<tr><td>Final Term</td><td style="text-align:center">${finalPct}</td><td style="text-align:center">${finalGrade}</td></tr>` : ""}
     </tbody>
   </table>
   <table style="margin-top:10px">
@@ -601,23 +560,15 @@ function buildPrintHTML(
   </table>
   <div class="promoted">Promoted To Grade: ___________________________</div>
   <div class="sig-row">
-    <div class="sig-block">
-      <div style="height:40px"></div>
-      <div class="sig-line"></div>
-      <div class="sig-label">Class Teacher's Signature</div>
-    </div>
-    <div class="sig-block">
-      <div style="height:40px"></div>
-      <div class="sig-line"></div>
-      <div class="sig-label">Principal's Signature</div>
-    </div>
+    <div class="sig-block"><div style="height:40px"></div><div class="sig-line"></div><div class="sig-label">Class Teacher's Signature</div></div>
+    <div class="sig-block"><div style="height:40px"></div><div class="sig-line"></div><div class="sig-label">Principal's Signature</div></div>
   </div>
 </div>
 </body>
 </html>`;
 }
 
-// ─── Report Card Preview Modal (termFilter aware) ────────────────────────────
+// ─── Report Card Preview Modal ────────────────────────────────────────────────
 const ReportCardPreview: FC<{
   reportResults: AssessmentResult[];
   studentName: string;
@@ -625,7 +576,6 @@ const ReportCardPreview: FC<{
   onClose: () => void;
   onPrint: () => void;
 }> = ({ reportResults, studentName, termFilter, onClose, onPrint }) => {
-
   const courseMap = buildCourseMap(reportResults);
 
   const midResults   = reportResults.filter(r => isMidTerm(r.academic_term));
@@ -642,15 +592,14 @@ const ReportCardPreview: FC<{
   const year  = reportResults[0]?.academic_year || "";
   const group = reportResults[0]?.student_group || "";
 
-  const midGrade   = [...midResults].sort((a,b)=>b.total_score-a.total_score)[0]?.grade || "—";
-  const finalGrade = [...finalResults].sort((a,b)=>b.total_score-a.total_score)[0]?.grade || "—";
+  const midGrade   = [...midResults].sort((a, b) => b.total_score - a.total_score)[0]?.grade || "—";
+  const finalGrade = [...finalResults].sort((a, b) => b.total_score - a.total_score)[0]?.grade || "—";
 
   const tbl: CSSProperties = { width: "100%", borderCollapse: "collapse", marginBottom: 12, fontSize: 12 };
   const th:  CSSProperties = { background: "#1a2e28", color: "#fff", padding: "6px 10px", textAlign: "center", fontWeight: 600, textTransform: "uppercase", fontSize: 11 };
   const td:  CSSProperties = { padding: "5px 10px", border: "1px solid #ccc" };
   const colSpan = 1 + (hasMid ? 1 : 0) + (hasFinal ? 1 : 0);
 
-  // Badge colour for term label in modal header
   const termBadgeColor = termFilter === "mid" ? "#3B82F6" : termFilter === "final" ? "#8B5CF6" : C.brand;
 
   return (
@@ -689,13 +638,10 @@ const ReportCardPreview: FC<{
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <Eye size={18} color={C.white} />
               <span style={{ color: C.white, fontWeight: 700, fontSize: 16 }}>Report Card Preview</span>
-              {/* Term badge */}
               <span style={{
-                background: termBadgeColor,
-                color: "#fff",
+                background: termBadgeColor, color: "#fff",
                 fontSize: 11, fontWeight: 700,
-                padding: "2px 10px", borderRadius: 20,
-                letterSpacing: "0.04em",
+                padding: "2px 10px", borderRadius: 20, letterSpacing: "0.04em",
               }}>
                 {termFilterLabel(termFilter)}
               </span>
@@ -722,7 +668,6 @@ const ReportCardPreview: FC<{
           {/* Report Card Body */}
           <div style={{ padding: "24px 28px", fontFamily: "Arial, Helvetica, sans-serif", color: "#111", fontSize: 13 }}>
             <div style={{ textAlign: "right", fontSize: 11, color: "#888", marginBottom: 4 }}>RE: 71765B7-S</div>
-
             <div style={{ textAlign: "center", marginBottom: 16, borderBottom: "2px solid #1a2e28", paddingBottom: 12 }}>
               <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: 2, textTransform: "uppercase", fontFamily: "Georgia, serif" }}>Learn Academy</div>
               <div style={{ color: C.brand, fontSize: 12, margin: "2px 0 4px" }}>▲ learn</div>
@@ -739,7 +684,6 @@ const ReportCardPreview: FC<{
               ))}
             </div>
 
-            {/* Subject Marks */}
             <table style={tbl}>
               <thead>
                 <tr>
@@ -764,7 +708,6 @@ const ReportCardPreview: FC<{
               </tbody>
             </table>
 
-            {/* Term Summary */}
             <table style={{ ...tbl, marginTop: 8 }}>
               <thead>
                 <tr>
@@ -791,7 +734,6 @@ const ReportCardPreview: FC<{
               </tbody>
             </table>
 
-            {/* Teacher Comment */}
             <table style={{ ...tbl, marginTop: 10 }}>
               <thead><tr><th style={{ ...th, textAlign: "left" }}>Teacher's Comment</th></tr></thead>
               <tbody>
@@ -803,7 +745,6 @@ const ReportCardPreview: FC<{
               </tbody>
             </table>
 
-            {/* PSD */}
             <table style={{ ...tbl, marginTop: 14 }}>
               <thead>
                 <tr><th colSpan={colSpan} style={{ ...th, textAlign: "left" }}>Personal and Social Development</th></tr>
@@ -846,36 +787,36 @@ const ReportCardPreview: FC<{
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 const ReportCardPage: FC = () => {
-  const { role, activeStudentId, studentId: ctxStudentId, studentName: ctxStudentName } = useUser() as any;
+  const { role, activeStudentId, studentId: ctxStudentId, user, linkedStudents } = useUser() as any;
 
   const resolvedStudentId: string | null =
     role === "guardian" ? (activeStudentId || null) : (ctxStudentId || null);
 
-  const studentName: string = ctxStudentName || "Student";
+  // Guardian ka active child ka naam linkedStudents se aata hai;
+  // Student apna naam user object se leta hai (Layout.tsx isi tareeqay se leta hai).
+  const studentName: string =
+    role === "guardian"
+      ? (linkedStudents?.find?.((s: LinkedStudentLike) => s.student === activeStudentId)?.student_name || "Student")
+      : ((user as any)?.student_name || "Student");
 
   const { results, isLoading, error } = useReportCard(resolvedStudentId);
 
-  const [filters, setFilters]             = useState<FilterState>({ year: "", term: "", group: "" });
-  // null = modal closed; "mid" | "final" | "both" = modal open with that filter
-  const [previewTerm, setPreviewTerm]     = useState<TermFilter | null>(null);
+  const [filters, setFilters]         = useState<FilterState>({ year: "", term: "", group: "" });
+  const [previewTerm, setPreviewTerm] = useState<TermFilter | null>(null);
 
-  // ── Subject card filter ───────────────────────────────────────────────────
   const filteredCards = results.filter(r =>
     (!filters.year  || r.academic_year === filters.year)  &&
     (!filters.term  || r.academic_term === filters.term)  &&
     (!filters.group || r.student_group === filters.group)
   );
 
-  // ── Check availability ────────────────────────────────────────────────────
   const hasMidData   = results.some(r => isMidTerm(r.academic_term));
   const hasFinalData = results.some(r => !isMidTerm(r.academic_term));
 
-  // ── Report card results for active preview term ───────────────────────────
   const reportResults = previewTerm
     ? buildReportCardResults(results, filters, previewTerm)
     : [];
 
-  // ── Print handler ─────────────────────────────────────────────────────────
   const handlePrint = (tf: TermFilter) => {
     const rr = buildReportCardResults(results, filters, tf);
     const html = buildPrintHTML(rr, studentName, tf);
@@ -887,7 +828,6 @@ const ReportCardPage: FC = () => {
     setTimeout(() => { win.print(); win.close(); }, 500);
   };
 
-  // ── Edge Cases ────────────────────────────────────────────────────────────
   if (role === "guardian" && !activeStudentId) {
     return (
       <div className="flex flex-col items-center justify-center py-32 gap-3 text-center px-6">
@@ -895,9 +835,7 @@ const ReportCardPage: FC = () => {
           <Users className="w-7 h-7 text-blue-400" />
         </div>
         <p className="text-base font-bold text-gray-700">No Student is Selected</p>
-        <p className="text-sm text-gray-400 max-w-xs">
-          Select Your Child From Above Menu So You can View Result.
-        </p>
+        <p className="text-sm text-gray-400 max-w-xs">Select Your Child From Above Menu So You can View Result.</p>
       </div>
     );
   }
@@ -912,13 +850,7 @@ const ReportCardPage: FC = () => {
     );
   }
 
-  if (isLoading) {
-    return (
-      <div style={{ minHeight: "100vh", background: C.bg }}>
-        <Spinner />
-      </div>
-    );
-  }
+  if (isLoading) return <div style={{ minHeight: "100vh", background: C.bg }}><Spinner /></div>;
 
   if (error) {
     return (
@@ -929,36 +861,13 @@ const ReportCardPage: FC = () => {
     );
   }
 
-  // ── Button config ─────────────────────────────────────────────────────────
-  type BtnDef = { tf: TermFilter; label: string; icon: string; show: boolean; viewColor: string; printColor: string };
+  type BtnDef = { tf: TermFilter; label: string; icon: string; show: boolean };
   const btnDefs: BtnDef[] = [
-    {
-      tf: "mid",
-      label: "Mid Term",
-      icon: "📋",
-      show: hasMidData,
-      viewColor: "#3B82F6",
-      printColor: "#1D4ED8",
-    },
-    {
-      tf: "final",
-      label: "Final Term",
-      icon: "📄",
-      show: hasFinalData,
-      viewColor: "#8B5CF6",
-      printColor: "#6D28D9",
-    },
-    {
-      tf: "both",
-      label: "Both Terms",
-      icon: "📊",
-      show: hasMidData && hasFinalData,
-      viewColor: C.brand,
-      printColor: C.brandDark,
-    },
+    { tf: "mid",   label: "Mid Term",   icon: "📋", show: hasMidData },
+    { tf: "final", label: "Final Term", icon: "📄", show: hasFinalData },
+    { tf: "both",  label: "Both Terms", icon: "📊", show: hasMidData && hasFinalData },
   ];
 
-  // ── Main Render ───────────────────────────────────────────────────────────
   return (
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: "'Segoe UI', Tahoma, sans-serif", color: C.textPrimary }}>
 
@@ -972,14 +881,19 @@ const ReportCardPage: FC = () => {
         />
       )}
 
-      {/* Page Header */}
+      {/* ── Page Header ───────────────────────────────────────────────────── */}
       <div style={{
         background: `linear-gradient(135deg, ${C.brandDark} 0%, ${C.brand} 100%)`,
         padding: "24px 24px 32px",
         marginBottom: -20,
       }}>
         <div style={{ maxWidth: 900, margin: "0 auto" }}>
-          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 16 }}>
+          <div style={{
+            display: "flex", alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap", gap: 16,
+          }}>
+
             {/* Title */}
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{
@@ -994,28 +908,39 @@ const ReportCardPage: FC = () => {
               </div>
             </div>
 
-            {/* Term Buttons */}
+            {/* ── Term Buttons — 3-column grid (label | View | Print) ─────── */}
             {results.length > 0 && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {btnDefs.filter(b => b.show).map(({ tf, label, icon, viewColor, printColor }) => (
-                  <div key={tf} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    {/* Label chip */}
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: "auto auto auto",
+                gap: "8px 10px",
+                alignItems: "center",
+              }}>
+                {btnDefs.filter(b => b.show).map(({ tf, label, icon }) => (
+                  <React.Fragment key={tf}>
+
+                    {/* Col 1 — Label */}
                     <span style={{
-                      fontSize: 11, color: "rgba(255,255,255,0.7)",
-                      minWidth: 72, textAlign: "right",
-                      fontWeight: 600, letterSpacing: "0.04em",
+                      fontSize: 11,
+                      color: "rgba(255,255,255,0.85)",
+                      fontWeight: 700,
+                      letterSpacing: "0.04em",
+                      textAlign: "right",
+                      whiteSpace: "nowrap",
                     }}>
                       {icon} {label}
                     </span>
-                    {/* View button */}
+
+                    {/* Col 2 — View */}
                     <button
                       onClick={() => setPreviewTerm(tf)}
                       style={{
-                        display: "flex", alignItems: "center", gap: 5,
-                        padding: "7px 14px",
+                        display: "flex", alignItems: "center",
+                        justifyContent: "center", gap: 5,
+                        padding: "7px 16px",
                         background: "rgba(255,255,255,0.15)",
                         color: C.white,
-                        border: "1.5px solid rgba(255,255,255,0.4)",
+                        border: "1.5px solid rgba(255,255,255,0.45)",
                         borderRadius: 9, fontWeight: 700, fontSize: 12,
                         cursor: "pointer", backdropFilter: "blur(4px)",
                         whiteSpace: "nowrap",
@@ -1023,12 +948,14 @@ const ReportCardPage: FC = () => {
                     >
                       <Eye size={13} /> View
                     </button>
-                    {/* Print button */}
+
+                    {/* Col 3 — Print */}
                     <button
                       onClick={() => handlePrint(tf)}
                       style={{
-                        display: "flex", alignItems: "center", gap: 5,
-                        padding: "7px 14px",
+                        display: "flex", alignItems: "center",
+                        justifyContent: "center", gap: 5,
+                        padding: "7px 16px",
                         background: C.white, color: C.brandDark,
                         border: "none", borderRadius: 9,
                         fontWeight: 700, fontSize: 12, cursor: "pointer",
@@ -1038,15 +965,17 @@ const ReportCardPage: FC = () => {
                     >
                       <Printer size={13} /> Print
                     </button>
-                  </div>
+
+                  </React.Fragment>
                 ))}
               </div>
             )}
+
           </div>
         </div>
       </div>
 
-      {/* Content */}
+      {/* ── Content ───────────────────────────────────────────────────────── */}
       <div style={{ maxWidth: 900, margin: "0 auto", padding: "32px 16px 40px" }}>
 
         {results.length > 0 && (
@@ -1063,7 +992,7 @@ const ReportCardPage: FC = () => {
         ) : filteredCards.length === 0 ? (
           <div style={{ textAlign: "center", padding: "60px 16px", color: C.textMuted }}>
             <div style={{ fontSize: 48, marginBottom: 10 }}>🔍</div>
-            <p style={{ fontSize: 15 }}>Is filter ke liye koi result nahi.</p>
+            <p style={{ fontSize: 15 }}>NO Result For This Filter.</p>
           </div>
         ) : (
           filteredCards.map((r, i) => (
@@ -1074,5 +1003,10 @@ const ReportCardPage: FC = () => {
     </div>
   );
 };
+
+interface LinkedStudentLike {
+  student: string;
+  student_name: string;
+}
 
 export default ReportCardPage;
