@@ -17,7 +17,8 @@ import ReportCardPage from './pages/Reportcardpage';
 import ClassroomPage from './pages/Classroom';
 import ClassroomCourseDetailPage from './pages/ClassroomCourseDetail';
 import LoginActivityPage from './pages/LoginActivityPage';
-import ParentLoginActivityPage from './pages/ParentLoginActivityPage';   // ← NAYA import
+import ParentLoginActivityPage from './pages/ParentLoginActivityPage';
+import ScreenTimePage from './pages/ScreenTimePage';   // ← NAYA import
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading } = useUser();
@@ -64,6 +65,9 @@ export default function App() {
           
           <Route path="/report-card" element={<ProtectedRoute><ReportCardPage /></ProtectedRoute>} />
           <Route path="/notice-board" element={<ProtectedRoute><NoticeBoardPage /></ProtectedRoute>} />
+          
+          {/* ✅ Screen Time — same page, role-based data */}
+          <Route path="/screen-time" element={<ProtectedRoute><ScreenTimePage /></ProtectedRoute>} />
           
           {/* ✅ Role-based: Student → LoginActivityPage, Parent → ParentLoginActivityPage */}
           <Route path="/login-activity" element={<ProtectedRoute><LoginActivityRoute /></ProtectedRoute>} />

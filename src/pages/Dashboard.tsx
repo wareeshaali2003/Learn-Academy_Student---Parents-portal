@@ -4,31 +4,14 @@ import { useUser } from '../context/UserContext';
 import { erpService, CourseScheduleEntry } from '../services/erpService';
 import { Attendance, Assignment, Result, Quiz } from '../types';
 import { useStudentSchedule, ScheduleEntry } from './Schedulepage';
+import { useScreenTime, formatMinutes } from '../Hooks/useScreenTime';
+import { useLoginActivity, formatDuration } from '../Hooks/useLoginActivity';
 import {
-  CalendarCheck,
-  FileText,
-  GraduationCap,
-  BrainCircuit,
-  TrendingUp,
-  CheckCircle2,
-  AlertCircle,
-  Clock,
-  Target,
-  XCircle,
-  MinusCircle,
-  Users,
-  Bell,
-  Newspaper,
-  Radio,
-  ScrollText,
-  Inbox,
-  CalendarDays,
-  MapPin,
-  Video,
-  ChevronLeft,
-  ChevronRight,
-  BookOpen,
-  Zap,
+  CalendarCheck, FileText, GraduationCap, BrainCircuit,
+  TrendingUp, CheckCircle2, AlertCircle, Clock, Target,
+  XCircle, MinusCircle, Users, Bell, Newspaper, Radio,
+  ScrollText, Inbox, CalendarDays, MapPin, Video,
+  ChevronLeft, ChevronRight, BookOpen, Zap, Activity,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useNoticeBoard } from '../Hooks/Usenoticeboard';
@@ -131,7 +114,7 @@ function getCourseColor(course: string) {
   return PALETTE[_courseColorCache[course]];
 }
 
-// ── Class Card Component (SAME as SchedulePage) ────────────────────────────
+// ── Class Card Component ────────────────────────────────────────────────────
 const ClassCard: React.FC<{ entry: ScheduleEntry; index: number; isGuardian: boolean }> = ({ entry, index, isGuardian }) => {
   const c = getCourseColor(entry.course);
   const courseName = formatCourseName(entry.course);
@@ -139,8 +122,7 @@ const ClassCard: React.FC<{ entry: ScheduleEntry; index: number; isGuardian: boo
   const fromTime = parseTime(entry.from_time);
   const toTime = parseTime(entry.to_time);
   const hasLink = !!(entry.meeting_link || entry.custom_meeting_link);
-  
-  // Check if class is active (for Join button)
+
   const isActive = (() => {
     const today = new Date();
     const entryDate = entry.schedule_date.slice(0, 10);
@@ -155,9 +137,7 @@ const ClassCard: React.FC<{ entry: ScheduleEntry; index: number; isGuardian: boo
   })();
 
   return (
-    <div
-      className={`relative flex gap-3 rounded-2xl border ${c.bg} ${c.border} px-4 py-3.5 overflow-hidden group`}
-    >
+    <div className={`relative flex gap-3 rounded-2xl border ${c.bg} ${c.border} px-4 py-3.5 overflow-hidden group`}>
       <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-2xl ${c.accent}`} />
       <div className="flex flex-col items-center justify-center shrink-0 w-14 text-center">
         <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">{fromTime.split(' ')[1]}</span>
@@ -183,7 +163,6 @@ const ClassCard: React.FC<{ entry: ScheduleEntry; index: number; isGuardian: boo
           )}
         </div>
 
-        {/* Join Class button — same as SchedulePage */}
         {hasLink && !isGuardian && (
           isActive ? (
             <a
@@ -199,11 +178,9 @@ const ClassCard: React.FC<{ entry: ScheduleEntry; index: number; isGuardian: boo
               <Video className="w-3.5 h-3.5" /> Join Class
             </a>
           ) : (
-            <span
-              className="mt-2.5 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl
-                         bg-gray-100 text-gray-400 text-[11px] font-bold
-                         cursor-not-allowed select-none"
-            >
+            <span className="mt-2.5 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl
+                             bg-gray-100 text-gray-400 text-[11px] font-bold
+                             cursor-not-allowed select-none">
               <Video className="w-3.5 h-3.5" /> Join Class
             </span>
           )
@@ -253,8 +230,10 @@ export const Dashboard: React.FC = () => {
     ? (activeStudentId ?? undefined)
     : (activeStudentId ?? user?.name ?? undefined);
 
-  // ── Use the SAME hook as Schedule page ────────────────────────────────────
+  // ── Hooks: Schedule, Screen Time, Login Activity ────────────────────────────
   const { byDate, courses, loading: scheduleLoading, error: scheduleError, refetch } = useStudentSchedule(studentId);
+  const { todayMinutes, todayEntries } = useScreenTime(studentId);
+  const { sessions, isCurrentlyOnline, totalTimeTodayMs } = useLoginActivity();
 
   const [attendance, setAttendance]   = useState<Attendance[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -263,17 +242,14 @@ export const Dashboard: React.FC = () => {
   const [isLoading, setIsLoading]     = useState(true);
   const [studentName, setStudentName] = useState<string>('');
 
-  // Notice Board hook
   const { notices, isLoading: noticesLoading } = useNoticeBoard();
   const latestNotices = notices.slice(0, 4);
 
-  // ── Calendar state ─────────────────────────────────────────────────────────
   const [pickedDate, setPickedDate] = useState<Date>(new Date());
   const [calYear, setCalYear] = useState(() => new Date().getFullYear());
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
   const isTodayPicked = isSameDay(pickedDate, new Date());
 
-  // ── Month total classes ──────────────────────────────────────────────────
   const totalForMonth = useMemo(() => {
     return Object.entries(byDate)
       .filter(([k]) => {
@@ -283,14 +259,12 @@ export const Dashboard: React.FC = () => {
       .reduce((s, [, v]) => s + v.length, 0);
   }, [byDate, calYear, calMonth]);
 
-  // ── Selected day schedule ────────────────────────────────────────────────
   const selectedKey = toKey(pickedDate);
   const selectedDaySchedule = useMemo(() => {
     const list = byDate[selectedKey] || [];
     return [...list].sort((a, b) => a.from_time.localeCompare(b.from_time));
   }, [byDate, selectedKey]);
 
-  // ── Calendar grid ──────────────────────────────────────────────────────────
   const calendarCells = useMemo(() => {
     const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
     const startWeekday = new Date(calYear, calMonth, 1).getDay();
@@ -302,13 +276,8 @@ export const Dashboard: React.FC = () => {
     return cells;
   }, [calYear, calMonth]);
 
-  // ── Has classes on date ──────────────────────────────────────────────────
-  const classDaySet = useMemo(
-    () => new Set(Object.keys(byDate)),
-    [byDate]
-  );
+  const classDaySet = useMemo(() => new Set(Object.keys(byDate)), [byDate]);
 
-  // ── Navigation ─────────────────────────────────────────────────────────────
   const goPrevMonth = () => {
     const d = new Date(calYear, calMonth - 1, 1);
     setCalYear(d.getFullYear());
@@ -328,7 +297,6 @@ export const Dashboard: React.FC = () => {
     setPickedDate(today);
   };
 
-  // ── Fetch other data ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!studentId) {
       setIsLoading(false);
@@ -377,33 +345,58 @@ export const Dashboard: React.FC = () => {
   const avgResult = results.length > 0
     ? Math.round(results.reduce((acc, r) => { const max = r.maximum_score || r.total_weightage || 0; return acc + (max > 0 ? pct(r.total_score, max) : 0); }, 0) / results.length)
     : 0;
-  const completedQuizzes = quizzes.filter(q => q.status === 'Completed');
-  const pendingQuizzes   = quizzes.filter(q => q.status !== 'Completed');
+
+  // ── Screen Time card ───────────────────────────────────────────────────────
+  const peiraLimit = 180; // minutes
+  const screenTimePct = todayMinutes > 0 ? Math.min(100, Math.round((todayMinutes / peiraLimit) * 100)) : 0;
+
+  // ── Login Activity card ────────────────────────────────────────────────────
+  const loginSessionsToday = sessions.filter(s => {
+    if (!s.loginTime) return false;
+    const today = new Date();
+    return (
+      s.loginTime.getFullYear() === today.getFullYear() &&
+      s.loginTime.getMonth() === today.getMonth() &&
+      s.loginTime.getDate() === today.getDate()
+    );
+  }).length;
 
   const stats = [
     {
-      label: 'Attendance', value: `${attPct}%`,
+      label: 'Attendance',
+      value: `${attPct}%`,
       sub: `${presentCount} present · ${leaveCount} leave · ${absentCount} absent`,
-      icon: <CalendarCheck className="w-6 h-6" />, color: 'bg-emerald-50 text-emerald-600',
-      bar: attPct, barColor: attPct >= 75 ? 'bg-emerald-500' : 'bg-red-500',
+      icon: <CalendarCheck className="w-6 h-6" />,
+      color: 'bg-emerald-50 text-emerald-600',
+      bar: attPct,
+      barColor: attPct >= 75 ? 'bg-emerald-500' : 'bg-red-500',
     },
     {
-      label: 'Assignments', value: pendingAssign.length,
-      sub: `${submittedAssign.length} submitted · ${assignments.length} total`,
-      icon: <FileText className="w-6 h-6" />, color: 'bg-amber-50 text-amber-600',
-      bar: pct(submittedAssign.length, assignments.length), barColor: 'bg-amber-500',
+      label: 'Screen Time',
+      value: formatMinutes(todayMinutes),
+      sub: `${todayEntries.length} classes scheduled today`,
+      icon: <Clock className="w-6 h-6" />,
+      color: 'bg-indigo-50 text-indigo-600',
+      bar: screenTimePct,
+      barColor: screenTimePct >= 85 ? 'bg-red-500' : 'bg-indigo-500',
     },
     {
-      label: 'Avg Score', value: `${avgResult}%`,
+      label: 'Avg Score',
+      value: `${avgResult}%`,
       sub: `${results.length} result${results.length !== 1 ? 's' : ''} recorded`,
-      icon: <GraduationCap className="w-6 h-6" />, color: 'bg-green-50 text-primary-green',
-      bar: avgResult, barColor: avgResult >= 60 ? 'bg-green-500' : 'bg-red-500',
+      icon: <GraduationCap className="w-6 h-6" />,
+      color: 'bg-green-50 text-primary-green',
+      bar: avgResult,
+      barColor: avgResult >= 60 ? 'bg-green-500' : 'bg-red-500',
     },
     {
-      label: 'Quizzes', value: completedQuizzes.length,
-      sub: `${pendingQuizzes.length} pending · ${quizzes.length} total`,
-      icon: <BrainCircuit className="w-6 h-6" />, color: 'bg-purple-50 text-purple-600',
-      bar: pct(completedQuizzes.length, quizzes.length), barColor: 'bg-purple-500',
+      label: 'Login Activity',
+      value: formatDuration(totalTimeTodayMs),
+      sub: `${loginSessionsToday} session${loginSessionsToday !== 1 ? 's' : ''} today · ${isCurrentlyOnline ? 'Online' : 'Offline'}`,
+      icon: <Activity className="w-6 h-6" />,
+      color: 'bg-cyan-50 text-cyan-600',
+      bar: 0,
+      barColor: 'bg-cyan-500',
     },
   ];
 
@@ -487,7 +480,6 @@ export const Dashboard: React.FC = () => {
             )
           }
         >
-          {/* ── Mini month calendar ── */}
           <div className="p-5">
             <div className="flex items-center justify-between mb-3">
               <button
@@ -537,9 +529,7 @@ export const Dashboard: React.FC = () => {
                   >
                     {cell.getDate()}
                     {hasClass && (
-                      <span
-                        className={`absolute bottom-0.5 w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-primary-green'}`}
-                      />
+                      <span className={`absolute bottom-0.5 w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-primary-green'}`} />
                     )}
                   </button>
                 );
@@ -554,14 +544,12 @@ export const Dashboard: React.FC = () => {
             </div>
           </div>
 
-          {/* ── Selected day header ── */}
           <div className="px-5 pb-2 border-t border-gray-50 pt-3">
             <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">
               {format(pickedDate, 'EEEE, d MMM yyyy')}
             </p>
           </div>
 
-          {/* ── Selected day's classes ── */}
           {scheduleLoading ? (
             <div className="p-4 space-y-3">
               {[1, 2].map((i) => (
@@ -582,11 +570,11 @@ export const Dashboard: React.FC = () => {
           ) : (
             <div className="divide-y divide-gray-50 max-h-72 overflow-y-auto p-4 space-y-3">
               {selectedDaySchedule.map((entry: ScheduleEntry, index: number) => (
-                <ClassCard 
-                  key={`${entry.course}-${entry.from_time}`} 
-                  entry={entry} 
-                  index={index} 
-                  isGuardian={isGuardian} 
+                <ClassCard
+                  key={`${entry.course}-${entry.from_time}`}
+                  entry={entry}
+                  index={index}
+                  isGuardian={isGuardian}
                 />
               ))}
             </div>

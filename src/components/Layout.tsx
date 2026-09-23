@@ -26,7 +26,8 @@ import {
   ScrollText,
   School,
   Timer,
-} from 'lucide-react';
+  Activity,
+} from 'lucide-react';     // ← Sirf 'Activity' naya add kiya
 import { NavLink, useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -44,7 +45,7 @@ interface NavItem {
   allowedRoles?: UserRole[];
 }
 
-// ── FIX: getNavItems ab role ke hisaab se dynamic names deta hai ──
+// ── getNavItems role-based ──────────────────────────────────────────
 function getNavItems(role: UserRole): NavItem[] {
   return [
     { name: 'Dashboard',    path: '/',             icon: LayoutDashboard },
@@ -55,12 +56,21 @@ function getNavItems(role: UserRole): NavItem[] {
     { name: 'Report Card',  path: '/report-card',  icon: ClipboardList   },
     { name: 'Fees',         path: '/fees',         icon: Wallet,         allowedRoles: ['guardian'] },
     { name: 'Notice Board', path: '/notice-board', icon: Newspaper       },
+
+    // ── NAYA: Screen Time ─────────────────────────────────────────
     {
-      // Parent Portal mein alag naam, Student Portal mein alag
+      name: role === 'guardian' ? "Child's Screen Time" : 'Screen Time',
+      path: '/screen-time',
+      icon: Clock,
+    },
+
+    // ── Login Activity (existing) ─────────────────────────────────
+    {
       name: role === 'guardian' ? "Child's Activity" : 'Login Activity',
       path: '/login-activity',
       icon: Timer,
     },
+
     { name: 'Profile',      path: '/profile',      icon: UserCircle      },
   ];
 }
@@ -402,7 +412,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const navigate = useNavigate();
 
   const role: UserRole = user?.role === 'guardian' ? 'guardian' : 'student';
-  const visibleNav = getVisibleNav(role);   // ← ab role ke hisaab se dynamic nav milega
+  const visibleNav = getVisibleNav(role);
 
   const displayName = role === 'guardian'
     ? (user as any)?.guardian_name
@@ -780,4 +790,4 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       </main>
     </div>
   );
-};
+}; 

@@ -12,6 +12,7 @@ export default defineConfig(({mode}) => {
       'process.env.VITE_ERP_BASE_URL': JSON.stringify(env.VITE_ERP_BASE_URL),
       'process.env.VITE_ERP_API_KEY': JSON.stringify(env.VITE_ERP_API_KEY),
       'process.env.VITE_ERP_API_SECRET': JSON.stringify(env.VITE_ERP_API_SECRET),
+      'process.env.VITE_CLASSROOM_SERVER_URL': JSON.stringify(env.VITE_CLASSROOM_SERVER_URL),
     },
     resolve: {
       alias: {
@@ -32,6 +33,17 @@ export default defineConfig(({mode}) => {
           target: 'https://learnschool.online',
           changeOrigin: true,
           secure: true,
+        },
+        // Google Classroom integration backend (server/index.js)
+        '/gc-api': {
+          target: env.VITE_CLASSROOM_SERVER_URL || 'http://localhost:4000',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/gc-api/, '/api/classroom'),
+        },
+        '/gc-auth': {
+          target: env.VITE_CLASSROOM_SERVER_URL || 'http://localhost:4000',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/gc-auth/, '/auth'),
         },
       },
       hmr: process.env.DISABLE_HMR !== 'true',
